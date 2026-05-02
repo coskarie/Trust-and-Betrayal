@@ -130,6 +130,40 @@
             text-align: center; width: 100%; max-width: 320px; position: relative;
             box-shadow: 0 0 30px rgba(212, 175, 55, 0.15);
         }
+
+                /* --- 밤(해킹/CCTV 단말기) 테마 전용 CSS --- */
+        .scanline-overlay {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+        .vignette-bg {
+            background: radial-gradient(circle, transparent 50%, rgba(0,0,0,0.85) 150%);
+            pointer-events: none;
+        }
+        .rec-dot {
+            width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block;
+            animation: pulse-red 1.5s infinite;
+        }
+        @keyframes pulse-red {
+            0% { opacity: 1; box-shadow: 0 0 8px #ef4444; }
+            50% { opacity: 0.3; box-shadow: 0 0 2px #ef4444; }
+            100% { opacity: 1; box-shadow: 0 0 8px #ef4444; }
+        }
+        .btn-hacker {
+            width: 100%; display: flex; justify-content: space-between; align-items: center;
+            background: rgba(0, 0, 0, 0.9); border: 1px solid rgba(239, 68, 68, 0.5); color: #f87171;
+            font-family: 'Josefin Sans', monospace; font-size: 13px; font-weight: bold;
+            letter-spacing: 0.1em; cursor: pointer; transition: all 0.2s; position: relative;
+        }
+        .btn-hacker:hover {
+            border-color: #ef4444; background: rgba(127, 29, 29, 0.3); color: #fca5a5; box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+        }
+        .cctv-bracket { position: absolute; width: 12px; height: 12px; border-color: rgba(239, 68, 68, 0.6); border-style: solid; z-index: 40; pointer-events: none; }
+        .cctv-bracket--tl { top: 8px; left: 8px; border-width: 2px 0 0 2px; }
+        .cctv-bracket--tr { top: 8px; right: 8px; border-width: 2px 2px 0 0; }
+        .cctv-bracket--bl { bottom: 8px; left: 8px; border-width: 0 0 2px 2px; }
+        .cctv-bracket--br { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
     </style>
 </head>
 <body>
@@ -403,28 +437,102 @@
         }, 1000); // 1초마다 실행
     }
 
-    // 밤(숙소) 화면으로 전환하는 함수
+        // 밤(해킹/CCTV) 화면으로 전환하는 함수
     window.transitionToNightPhase = () => {
+        // 1. 헤더 시간 표시 교체 (REC 버튼 및 시스템 폰트 추가)
         const clockEl = document.getElementById('in-game-clock');
-        if(clockEl) clockEl.innerText = "NIGHT PHASE · 00:00";
+        if(clockEl) {
+            clockEl.innerText = "CAM-01 · DRONE FEED";
+            clockEl.className = "font-mono text-[9px] tracking-[0.2em] text-red-500 uppercase";
+            // 기존 다이아몬드 지우고 REC 붉은 점 추가
+            clockEl.parentElement.innerHTML = `<span class="rec-dot mr-2"></span>` + clockEl.outerHTML; 
+        }
         
-        // 유저에게 알림 띄우기
-        showAlert("24:00이 되어 숙소로 이동합니다.\n밤 시간이 시작되었습니다.");
-        
-        // 메인 이미지 숙소로 변경
-        updateMainDisplay('Night_Room.jpg');
-        
-        // 밤 전용 조작화면 렌더링 (턴제)
-        controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-3 my-auto">
-                <div class="text-center mb-2 border-b border-gold/30 pb-2">
-                    <span class="font-display text-gold tracking-widest text-xs uppercase">자정 (00:00 ~ 04:00)</span>
+        // 2. 전체 테마 교체 (골드 카지노 -> 블랙/레드 해커 테마)
+        const container = document.getElementById('game-container');
+        container.classList.remove('art-deco-bg');
+        container.style.backgroundColor = '#050505';
+        container.style.boxShadow = '0 0 30px rgba(220, 38, 38, 0.1)';
+        container.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+
+        // 낮 전용 골드 모서리 장식 숨기기
+        document.querySelectorAll('.deco-bracket').forEach(el => el.style.display = 'none');
+
+        // 상단 헤더 선 색상 교체
+        const header = document.querySelector('.h-14.bg-obsidian');
+        if(header) {
+            header.classList.remove('border-gold/40', 'shadow-gold-glow');
+            header.classList.add('border-red-900/50', 'shadow-[0_4px_12px_rgba(220,38,38,0.15)]');
+            
+            const roleEl = document.getElementById('in-game-role');
+            roleEl.classList.remove('text-gold');
+            roleEl.classList.add('text-red-500', 'font-mono');
+        }
+
+        // 3. 메인 게임 영역에 스캔라인, 비네팅, CCTV UI 덧씌우기
+        if(!document.getElementById('hacker-overlays')) {
+            const overlays = document.createElement('div');
+            overlays.id = 'hacker-overlays';
+            overlays.innerHTML = `
+                <div class="vignette-bg absolute inset-0 pointer-events-none z-30"></div>
+                <div class="scanline-overlay absolute inset-0 pointer-events-none z-30 opacity-60"></div>
+                <span class="cctv-bracket cctv-bracket--tl"></span>
+                <span class="cctv-bracket cctv-bracket--tr"></span>
+                <span class="cctv-bracket cctv-bracket--bl"></span>
+                <span class="cctv-bracket cctv-bracket--br"></span>
+                <div class="absolute bottom-3 right-4 z-40 pointer-events-none">
+                    <span class="font-mono text-[9px] tracking-wider text-red-500/40">LAT:48.52 / LON:123.23</span>
                 </div>
-                <button class="btn-deco min-h-[56px] text-xs px-2 text-center">협력 게임 진행</button>
-                <button class="btn-deco min-h-[56px] text-xs px-2 text-center">개인 정비 및 메일함</button>
-                <button class="btn-deco btn-solid min-h-[56px] mt-2 text-obsidian font-bold">턴 넘기기 (NEXT TURN)</button>
+            `;
+            // 메인화면 이미지 컨테이너 내부에 오버레이 삽입
+            mainImage.parentElement.appendChild(overlays);
+        }
+
+        // 메인 이미지 컨테이너 프레임 색상 교체
+        const imgContainer = mainImage.parentElement;
+        imgContainer.classList.remove('border-gold/40');
+        imgContainer.classList.add('border-red-900/50');
+        
+        // 4. 메인 이미지 숙소(해킹 모드)로 변경
+        updateMainDisplay('Night_Room.jpg');
+        mainImageText.classList.remove('text-gold/60');
+        mainImageText.classList.add('text-red-500/60', 'font-mono');
+        
+        // 5. 밤 전용 조작화면 (해커 터미널 테마의 버튼들)
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto z-40 relative">
+                <div class="text-center mb-2 border-b border-red-900/30 pb-2">
+                    <span class="font-mono text-red-500/80 tracking-[0.2em] text-[10px] uppercase">System Access // 00:00 - 04:00</span>
+                </div>
+                <button class="btn-hacker min-h-[48px] px-3">
+                    <span class="tracking-widest">협력 게임 접속</span>
+                    <span class="text-[9px] text-red-500/50">RUN_</span>
+                </button>
+                <button class="btn-hacker min-h-[48px] px-3">
+                    <span class="tracking-widest">암호화 메일함 확인</span>
+                    <span class="text-[9px] text-red-500/50">READ_</span>
+                </button>
+                <button class="btn-hacker min-h-[48px] mt-2 border-red-500 bg-red-950/40 text-red-400 font-bold tracking-[0.25em] justify-center">
+                    >>> TURN OVER
+                </button>
             </div>
         `;
+
+        // 6. 알림창(Notice) 테마도 해커 스타일로 일시 변경
+        const alertBox = document.querySelector('.alert-box');
+        if(alertBox) {
+            alertBox.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+            alertBox.style.boxShadow = '0 0 30px rgba(220, 38, 38, 0.15)';
+            const alertTitle = alertBox.querySelector('div');
+            if(alertTitle) {
+                alertTitle.classList.remove('text-gold');
+                alertTitle.classList.add('text-red-500', 'font-mono');
+                alertTitle.innerText = "SYSTEM ALERT";
+            }
+        }
+
+        // 유저에게 시스템 알림 띄우기
+        showAlert("자정입니다. 보안 프로토콜을 우회하여\n터미널에 접속합니다.");
     };
 
     // --- 4. 조작화면 (동적 UI 렌더링 로직) ---
