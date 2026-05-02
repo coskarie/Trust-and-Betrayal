@@ -106,6 +106,65 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ==========================================
+    // 카지노 6종 게임 기초 통신 처리부
+    // (현재는 작동 확인을 위해 랜덤 결과만 전송)
+    // ==========================================
+    socket.on('playGame', ({ roomNum, game, data }) => {
+        const roomName = `room-${roomNum}`;
+        let resultMessage = "";
+
+        switch(game) {
+            case 'gacha':
+                // data 에는 유저가 누른 1~10 구슬 번호가 들어옴
+                const resultMarble = Math.floor(Math.random() * 10) + 1;
+                if (data === resultMarble) {
+                    resultMessage = `[구슬뽑기] 정답입니다! 결과는 ${resultMarble}번 구슬이었습니다.`;
+                } else {
+                    resultMessage = `[구슬뽑기] 아쉽습니다. 결과는 ${resultMarble}번 구슬이었습니다.\n(선택: ${data})`;
+                }
+                break;
+            case 'slot':
+                const slots = [Math.floor(Math.random() * 7)+1, Math.floor(Math.random() * 7)+1, Math.floor(Math.random() * 7)+1];
+                resultMessage = `[슬롯머신] 결과: [ ${slots[0]} | ${slots[1]} | ${slots[2]} ]`;
+                if(slots[0] === slots[1] && slots[1] === slots[2]) resultMessage += "\nJACKPOT!!";
+                break;
+            case 'roulette':
+                const rouletteResult = Math.floor(Math.random() * 37); // 0~36
+                resultMessage = `[룰렛] 휠이 멈췄습니다. 결과는 [ ${rouletteResult} ]!`;
+                break;
+            case 'graph_start':
+                resultMessage = `[그래프] 배당률 상승 시작... 타이밍을 맞춰 멈추세요!`;
+                break;
+            case 'graph_stop':
+                resultMessage = `[그래프] 정지! 현재 배당률에서 수익을 확정했습니다.`;
+                break;
+            case 'blackjack_hit':
+                resultMessage = `[블랙잭] 카드를 한 장 더 받습니다. (Hit)`;
+                break;
+            case 'blackjack_stand':
+                resultMessage = `[블랙잭] 현재 패를 유지합니다. (Stand)`;
+                break;
+            case 'blackjack_touch':
+                resultMessage = `[블랙잭] 카드를 터치하여 확인했습니다.`;
+                break;
+            case 'holdem_call':
+                resultMessage = `[5장 홀덤] 콜 (Call) 하셨습니다.`;
+                break;
+            case 'holdem_raise':
+                resultMessage = `[5장 홀덤] 판돈을 올립니다. (Raise)`;
+                break;
+            case 'holdem_fold':
+                resultMessage = `[5장 홀덤] 이번 판을 포기합니다. (Fold)`;
+                break;
+            default:
+                resultMessage = "알 수 없는 명령입니다.";
+        }
+
+        // 해당 클라이언트에게 결과 텍스트 전송
+        socket.emit('gameResult', { msg: resultMessage });
+    });
+
     // 접속 종료(새로고침, 탭 닫기 등) 처리
     socket.on('disconnect', () => {
         console.log(`[-] 유저 접속 종료: ${socket.id}`);

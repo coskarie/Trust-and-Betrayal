@@ -131,7 +131,7 @@
             box-shadow: 0 0 30px rgba(212, 175, 55, 0.15);
         }
 
-                /* --- 밤(해킹/CCTV 단말기) 테마 전용 CSS --- */
+        /* --- 밤(해킹/CCTV 단말기) 테마 전용 CSS --- */
         .scanline-overlay {
             background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
             background-size: 100% 4px;
@@ -164,6 +164,13 @@
         .cctv-bracket--tr { top: 8px; right: 8px; border-width: 2px 2px 0 0; }
         .cctv-bracket--bl { bottom: 8px; left: 8px; border-width: 0 0 2px 2px; }
         .cctv-bracket--br { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
+
+        /* 게임 내부 요소 (구슬, 카드 등) 효과 */
+        .blink-effect { animation: blink 0.5s 2; }
+        @keyframes blink { 0% {opacity:1;} 50% {opacity:0.3;} 100% {opacity:1;} }
+        
+        .game-item-btn { transition: all 0.2s; }
+        .game-item-btn:active { transform: scale(0.9); background-color: #D4AF37; color: #000; }
     </style>
 </head>
 <body>
@@ -209,7 +216,7 @@
         </div>
         
         <div id="players-container" class="w-full flex flex-col gap-4 overflow-y-auto filter-scroll flex-grow">
-            </div>
+        </div>
 
         <div class="mt-auto pt-6 flex flex-col gap-3">
             <button id="btn-ready" class="btn-deco h-12 w-full">준비하기</button>
@@ -239,7 +246,7 @@
         </div>
         
         <div id="control-panel" class="flex-grow p-5 flex flex-col justify-center items-center w-full overflow-y-auto filter-scroll">
-            </div>
+        </div>
         
     </div>
 
@@ -250,7 +257,7 @@
             <span class="deco-bracket deco-bracket--bl" style="width:10px; height:10px;"></span>
             <span class="deco-bracket deco-bracket--br" style="width:10px; height:10px;"></span>
             
-            <div class="mb-6 font-display text-gold tracking-[0.1em] uppercase text-sm">Notice</div>
+            <div class="mb-6 font-display text-gold tracking-[0.1em] uppercase text-sm" id="alert-title">Notice</div>
             <p id="alert-msg" class="mb-8 font-body text-champagne text-base leading-relaxed tracking-wide"></p>
             <button class="btn-deco h-12 w-full" onclick="closeAlert()">확인 (Acknowledge)</button>
         </div>
@@ -265,6 +272,7 @@
     // 클라이언트 상태 관리
     let myData = null;
     let currentRoom = null;
+    let currentGameData = {}; // 선택된 숫자나 판돈 등 임시 저장소
 
     // DOM 요소
     const loginScreen = document.getElementById('login-screen');
@@ -400,6 +408,11 @@
         startDayPhaseClock();
     });
 
+    // 게임 결과 수신 이벤트
+    socket.on('gameResult', (data) => {
+        showAlert(data.msg);
+    });
+
     // --- 2. 로비 컨트롤 로직 ---
     document.getElementById('btn-ready').addEventListener('click', () => {
         socket.emit('toggleReady', { roomNum: currentRoom });
@@ -437,7 +450,7 @@
         }, 1000); // 1초마다 실행
     }
 
-        // 밤(해킹/CCTV) 화면으로 전환하는 함수
+    // 밤(해킹/CCTV) 화면으로 전환하는 함수
     window.transitionToNightPhase = () => {
         // 1. 헤더 시간 표시 교체 (REC 버튼 및 시스템 폰트 추가)
         const clockEl = document.getElementById('in-game-clock');
@@ -465,8 +478,10 @@
             header.classList.add('border-red-900/50', 'shadow-[0_4px_12px_rgba(220,38,38,0.15)]');
             
             const roleEl = document.getElementById('in-game-role');
-            roleEl.classList.remove('text-gold');
-            roleEl.classList.add('text-red-500', 'font-mono');
+            if (roleEl) {
+                roleEl.classList.remove('text-gold');
+                roleEl.classList.add('text-red-500', 'font-mono');
+            }
         }
 
         // 3. 메인 게임 영역에 스캔라인, 비네팅, CCTV UI 덧씌우기
@@ -523,7 +538,7 @@
         if(alertBox) {
             alertBox.style.borderColor = 'rgba(239, 68, 68, 0.5)';
             alertBox.style.boxShadow = '0 0 30px rgba(220, 38, 38, 0.15)';
-            const alertTitle = alertBox.querySelector('div');
+            const alertTitle = document.getElementById('alert-title');
             if(alertTitle) {
                 alertTitle.classList.remove('text-gold');
                 alertTitle.classList.add('text-red-500', 'font-mono');
@@ -537,7 +552,7 @@
 
     // --- 4. 조작화면 (동적 UI 렌더링 로직) ---
     
-    // 메인 이미지 변경 함수 (메신저 초기화 기능 추가)
+    // 메인 이미지 변경 함수 (오버레이 및 메신저 초기화 기능 포함)
     function updateMainDisplay(filename) {
         mainImage.src = filename;
         mainImage.style.display = 'block'; 
@@ -546,11 +561,28 @@
         // 숨겨뒀던 파일명 명패 다시 보이게 복구
         mainImageText.parentElement.style.display = 'flex';
 
-        // 다른 화면으로 넘어갈 때, 기존에 띄워둔 검은 화면과 메신저가 있다면 지우기
+        // 게임 화면 등에서 만들었던 요소 지우기
         const existingOverlay = document.getElementById('black-overlay');
         const existingMessenger = document.getElementById('messenger-ui');
+        const existingGameOverlay = document.getElementById('game-item-overlay');
         if(existingOverlay) existingOverlay.remove();
         if(existingMessenger) existingMessenger.remove();
+        if(existingGameOverlay) existingGameOverlay.remove();
+
+        currentGameData = {}; // 게임 진입시 데이터 초기화
+    }
+
+    // 메인화면 안에 게임 UI(구슬, 카드 등) 띄우는 함수
+    function createGameOverlay(innerHTMLContent, isDark = true) {
+        const displayContainer = mainImage.parentElement;
+        let overlay = document.getElementById('game-item-overlay');
+        if(!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'game-item-overlay';
+            displayContainer.appendChild(overlay);
+        }
+        overlay.className = `absolute inset-0 z-30 flex justify-center items-center p-4 ${isDark ? 'bg-black/60 backdrop-blur-sm' : ''}`;
+        overlay.innerHTML = innerHTMLContent;
     }
 
     // [상태 1] 낮 기본 메뉴
@@ -578,17 +610,173 @@
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto">
                 <div class="grid grid-cols-2 gap-3">
-                    <button class="btn-deco h-12 text-xs">구슬뽑기</button>
-                    <button class="btn-deco h-12 text-xs">그래프</button>
-                    <button class="btn-deco h-12 text-xs">블랙잭</button>
-                    <button class="btn-deco h-12 text-xs">슬롯머신</button>
-                    <button class="btn-deco h-12 text-xs">룰렛</button>
-                    <button class="btn-deco h-12 text-xs">5장 홀덤</button>
+                    <button onclick="renderGacha()" class="btn-deco h-12 text-xs">구슬뽑기</button>
+                    <button onclick="renderGraph()" class="btn-deco h-12 text-xs">그래프</button>
+                    <button onclick="renderBlackjack()" class="btn-deco h-12 text-xs">블랙잭</button>
+                    <button onclick="renderSlot()" class="btn-deco h-12 text-xs">슬롯머신</button>
+                    <button onclick="renderRoulette()" class="btn-deco h-12 text-xs">룰렛</button>
+                    <button onclick="renderHoldem()" class="btn-deco h-12 text-xs">5장 홀덤</button>
                 </div>
                 <button onclick="renderDayDefault()" class="btn-deco btn-solid h-12 mt-2">돌아가기 (RETURN)</button>
             </div>
         `;
     };
+
+    // ==========================================
+    // 🎲 6종 카지노 게임 구현부
+    // ==========================================
+
+    // 1. 구슬뽑기
+    window.renderGacha = () => {
+        updateMainDisplay('Gacha.jpg');
+        mainImageText.parentElement.style.display = 'none';
+
+        // 5x2 구슬 나열
+        let marblesHTML = '<div class="grid grid-cols-5 gap-3 w-full max-w-[250px]">';
+        for(let i=1; i<=10; i++) {
+            marblesHTML += `<button onclick="selectGachaMarble(${i})" class="game-item-btn aspect-square rounded-full border-2 border-gold text-gold font-bold text-lg flex justify-center items-center">${i}</button>`;
+        }
+        marblesHTML += '</div>';
+        createGameOverlay(marblesHTML);
+
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto text-center">
+                <p class="font-display text-gold text-xs tracking-widest mb-2" id="gacha-status">구슬을 터치하여 선택하세요.</p>
+                <button onclick="playGacha()" class="btn-deco min-h-[56px] text-xs">구슬 굴리기</button>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+            </div>
+        `;
+    };
+    window.selectGachaMarble = (num) => {
+        currentGameData.gachaTarget = num;
+        document.getElementById('gacha-status').innerText = `선택된 구슬: [ ${num} ]`;
+    };
+    window.playGacha = () => {
+        if(!currentGameData.gachaTarget) { showAlert("먼저 메인 화면에서 구슬을 선택하세요."); return; }
+        socket.emit('playGame', { roomNum: currentRoom, game: 'gacha', data: currentGameData.gachaTarget });
+    };
+
+    // 2. 슬롯 머신
+    window.renderSlot = () => {
+        updateMainDisplay('SlotMachine.jpg');
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto">
+                <button onclick="playSlot()" class="btn-deco min-h-[56px] text-xs">룰렛 돌리기 (Spin)</button>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+            </div>
+        `;
+    };
+    window.playSlot = () => {
+        socket.emit('playGame', { roomNum: currentRoom, game: 'slot' });
+    };
+
+    // 3. 룰렛
+    window.renderRoulette = () => {
+        updateMainDisplay('Roulette.jpg');
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto">
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="setRouletteBet('red')" class="btn-deco h-12 text-xs border-red-500 text-red-500 hover:bg-red-900/50 hover:text-white">Red</button>
+                    <button onclick="setRouletteBet('black')" class="btn-deco h-12 text-xs border-gray-500 text-gray-400 hover:bg-gray-800 hover:text-white">Black</button>
+                    <button onclick="showRouletteNumbers()" class="btn-deco h-12 text-xs">숫자 선택</button>
+                </div>
+                <button onclick="playRoulette()" class="btn-deco min-h-[56px] text-xs">시작하기</button>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+            </div>
+        `;
+    };
+    window.setRouletteBet = (type) => {
+        currentGameData.rouletteBet = type;
+        showAlert(`${type.toUpperCase()} 에 베팅을 예약했습니다.`);
+    };
+    window.showRouletteNumbers = () => {
+        mainImageText.parentElement.style.display = 'none';
+        
+        let gridHTML = `<div class="grid grid-cols-6 gap-1 w-full max-w-[280px] p-2 bg-obsidian/80 border border-gold blink-effect">`;
+        for(let i=0; i<=36; i++) {
+            gridHTML += `<button onclick="setRouletteBet(${i})" class="game-item-btn p-1 border border-gold/40 text-gold text-[10px] font-mono hover:bg-gold hover:text-black">${i}</button>`;
+        }
+        gridHTML += `</div>`;
+        createGameOverlay(gridHTML, false);
+    };
+    window.playRoulette = () => {
+        if(currentGameData.rouletteBet === undefined) { showAlert("베팅할 색상이나 숫자를 선택하세요."); return; }
+        socket.emit('playGame', { roomNum: currentRoom, game: 'roulette', data: currentGameData.rouletteBet });
+    };
+
+    // 4. 그래프
+    window.renderGraph = () => {
+        updateMainDisplay('Graph.jpg');
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto" id="graph-controls">
+                <button onclick="startGraph()" class="btn-deco min-h-[56px] text-xs">시작하기</button>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+            </div>
+        `;
+    };
+    window.startGraph = () => {
+        document.getElementById('graph-controls').innerHTML = `
+            <button onclick="stopGraph()" class="btn-deco min-h-[64px] text-sm border-red-500 text-red-500 hover:bg-red-500 hover:text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]">멈추기 (STOP)</button>
+        `;
+        socket.emit('playGame', { roomNum: currentRoom, game: 'graph_start' });
+    };
+    window.stopGraph = () => {
+        socket.emit('playGame', { roomNum: currentRoom, game: 'graph_stop' });
+        renderGraph(); // UI 리셋
+    };
+
+    // 5. 블랙잭
+    window.renderBlackjack = () => {
+        updateMainDisplay('Blackjack.jpg');
+        mainImageText.parentElement.style.display = 'none';
+        
+        // 메인 화면에 덱 렌더링 (디자인)
+        createGameOverlay(`
+            <div class="flex gap-2">
+                <div class="w-12 h-16 border border-gold/50 rounded flex justify-center items-center bg-obsidian/80 cursor-pointer game-item-btn" onclick="socket.emit('playGame', {game:'blackjack_touch'})">
+                    <span class="text-gold text-xs">TOUCH</span>
+                </div>
+                <div class="w-12 h-16 border border-gold/50 rounded bg-gold/10"></div>
+            </div>
+        `, true);
+
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto">
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="socket.emit('playGame', {roomNum: currentRoom, game:'blackjack_hit'})" class="btn-deco h-12 text-xs">HIT</button>
+                    <button onclick="socket.emit('playGame', {roomNum: currentRoom, game:'blackjack_stand'})" class="btn-deco h-12 text-xs">STAND</button>
+                </div>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+            </div>
+        `;
+    };
+
+    // 6. 5장 홀덤
+    window.renderHoldem = () => {
+        updateMainDisplay('Holdem.jpg');
+        mainImageText.parentElement.style.display = 'none';
+        
+        createGameOverlay(`
+            <div class="flex gap-1 justify-center">
+                ${[1,2,3,4,5].map(i => `<div class="w-10 h-14 border border-gold/50 rounded bg-obsidian/80 flex items-center justify-center cursor-pointer game-item-btn" onclick="showAlert('카드 ${i} 터치')"><span class="text-[8px] text-gold">${i}</span></div>`).join('')}
+            </div>
+        `, true);
+
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto">
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="socket.emit('playGame', {game:'holdem_call'})" class="btn-deco h-12 text-xs">CHECK / CALL</button>
+                    <button onclick="socket.emit('playGame', {game:'holdem_raise'})" class="btn-deco h-12 text-xs">BET / RAISE</button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-1">
+                    <button onclick="socket.emit('playGame', {game:'holdem_fold'})" class="btn-deco h-12 text-xs border-gray-500 text-gray-500">FOLD</button>
+                    <button onclick="renderGameMenu()" class="btn-deco btn-solid h-12">돌아가기</button>
+                </div>
+            </div>
+        `;
+    };
+
+    // ==========================================
 
     // [상태 3] 조사하기 하위 메뉴 (바텐더 클릭 버튼에 함수 연결)
     window.renderInvestigateMenu = () => {
