@@ -376,18 +376,26 @@
 
     // --- 3. 조작화면 (동적 UI 렌더링 로직) ---
     
-    // 메인 이미지 변경 함수
+    // 메인 이미지 변경 함수 (메신저 초기화 기능 추가)
     function updateMainDisplay(filename) {
         mainImage.src = filename;
-        mainImage.style.display = 'block'; // 숨겨져 있었을 경우 복구
+        mainImage.style.display = 'block'; 
         mainImageText.innerText = filename;
+        
+        // 숨겨뒀던 파일명 명패 다시 보이게 복구
+        mainImageText.parentElement.style.display = 'flex';
+
+        // 다른 화면으로 넘어갈 때, 기존에 띄워둔 검은 화면과 메신저가 있다면 지우기
+        const existingOverlay = document.getElementById('black-overlay');
+        const existingMessenger = document.getElementById('messenger-ui');
+        if(existingOverlay) existingOverlay.remove();
+        if(existingMessenger) existingMessenger.remove();
     }
 
     // [상태 1] 낮 기본 메뉴
     window.renderDayDefault = () => {
         updateMainDisplay('AM_main.jpg');
         
-        // ㅁ ㅁ 구조 (2열 그리드)
         controlPanel.innerHTML = `
             <div class="grid grid-cols-2 gap-4 w-full h-full min-h-[140px]">
                 <button onclick="renderGameMenu()" class="btn-deco flex-col gap-2 shadow-gold-glow">
@@ -404,10 +412,8 @@
 
     // [상태 2] 게임하기 하위 메뉴
     window.renderGameMenu = () => {
-        // 게임 메뉴 진입 시 메인 이미지 변경 (예시)
         updateMainDisplay('Game_Select.jpg');
         
-        // ㅁㅁ / ㅁㅁ / ㅁㅁ / ㅁ 구조
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto">
                 <div class="grid grid-cols-2 gap-3">
@@ -423,18 +429,68 @@
         `;
     };
 
-    // [상태 3] 조사하기 하위 메뉴
+    // [상태 3] 조사하기 하위 메뉴 (바텐더 클릭 버튼에 함수 연결)
     window.renderInvestigateMenu = () => {
         updateMainDisplay('Investigate.jpg');
         
-        // ㅁ / ㅁ / ㅁ 구조 (단일 열)
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto">
-                <button class="btn-deco min-h-[56px] text-xs px-2 text-center">바텐더와 대화를 나눈다.</button>
+                <button onclick="talkToBartender()" class="btn-deco min-h-[56px] text-xs px-2 text-center">바텐더와 대화를 나눈다.</button>
                 <button class="btn-deco min-h-[56px] text-xs px-2 text-center">지나가는 사람과 대화를 나눈다.</button>
                 <button onclick="renderDayDefault()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기 (RETURN)</button>
             </div>
         `;
+    };
+
+    // [상태 3-1] 바텐더와 대화하기 연출
+    window.talkToBartender = () => {
+        // 1. 메인화면에 바텐더 이미지 띄우기
+        updateMainDisplay('bartender.jpg');
+        
+        // 조작화면 임시 변경 (연출이 끝날 때까지 유저가 다른 걸 누르지 못하게 '접근 중...' 출력)
+        controlPanel.innerHTML = `
+            <div class="w-full flex justify-center items-center h-full">
+                <span class="font-display text-gold tracking-[0.2em] animate-pulse">접근 중...</span>
+            </div>
+        `;
+
+        const displayContainer = mainImage.parentElement;
+        
+        // 2. 80% 불투명도의 검은색 화면(오버레이) 생성
+        const overlay = document.createElement('div');
+        overlay.id = 'black-overlay';
+        overlay.className = 'absolute inset-0 bg-black/80 z-30 opacity-0 transition-opacity duration-300';
+        displayContainer.appendChild(overlay);
+
+        // 검은 화면 부드럽게 나타나기
+        setTimeout(() => { overlay.style.opacity = '1'; }, 50);
+
+        // 1초(1000ms) 대기 후 메신저 출력
+        setTimeout(() => {
+            // 사진 중앙의 글씨(파일명) 숨기기
+            mainImageText.parentElement.style.display = 'none';
+
+            // 3. 메신저 형태의 텍스트 UI 생성
+            const messenger = document.createElement('div');
+            messenger.id = 'messenger-ui';
+            messenger.className = 'absolute inset-x-4 bottom-4 z-40 bg-obsidian/95 border border-gold/50 p-4 shadow-gold-glow flex flex-col gap-2 double-frame';
+            
+            // 4. 바텐더의 대사 출력
+            messenger.innerHTML = `
+                <span class="font-display text-gold text-[10px] tracking-widest uppercase border-b border-gold/30 pb-1 w-fit">Bartender</span>
+                <p class="font-body text-champagne text-sm tracking-wide leading-relaxed">"무슨 일이시죠?"</p>
+            `;
+            displayContainer.appendChild(messenger);
+
+            // 5. 선택지 2가지와 돌아가기 버튼 출력
+            controlPanel.innerHTML = `
+                <div class="w-full flex flex-col gap-3 my-auto">
+                    <button class="btn-deco min-h-[56px] text-xs px-2 text-center">술 한잔 하고싶어서요</button>
+                    <button class="btn-deco min-h-[56px] text-xs px-2 text-center">당신을 매각하겠습니다</button>
+                    <button onclick="renderInvestigateMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기 (RETURN)</button>
+                </div>
+            `;
+        }, 1000); // 1000 = 1초
     };
 
 </script>
