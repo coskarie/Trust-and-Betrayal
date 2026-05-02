@@ -379,14 +379,6 @@
     
     let gameClockInterval = null;
 
-    // 분 단위의 시간을 HH:MM 포맷으로 변환하는 함수
-    function formatTime(totalMinutes) {
-        const h = Math.floor(totalMinutes / 60);
-        const m = totalMinutes % 60;
-        // 24시인 경우 24:00으로 표기, 나머지는 00을 채움
-        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    }
-
     // 낮 시간 타이머 시작 (현실 240초 = 게임 16:00 ~ 24:00)
     function startDayPhaseClock() {
         let elapsedSeconds = 0;
@@ -395,11 +387,12 @@
 
         gameClockInterval = setInterval(() => {
             elapsedSeconds++;
-            // 시작 시간: 16시(960분). 현실 1초당 게임 2분 증가
-            const totalMins = 960 + (elapsedSeconds * 2);
             
-            if (clockEl) {
-                clockEl.innerText = `DAY PHASE · ${formatTime(totalMins)}`;
+            // 현실 30초당 게임 시간 1시간씩 증가 (16시부터 시작)
+            const currentHour = 16 + Math.floor(elapsedSeconds / 30);
+            
+            if (clockEl && currentHour <= 24) {
+                clockEl.innerText = `DAY PHASE · ${currentHour}:00`;
             }
 
             // 240초 도달 시 (24:00)
