@@ -188,7 +188,7 @@
         <div class="h-14 bg-obsidian border-b border-gold/40 flex justify-between items-center px-5 relative z-20 shadow-gold-glow shrink-0">
             <div class="flex items-center gap-2">
                 <span class="diamond-dot" style="width: 4px; height: 4px;"></span>
-                <span class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">Day Phase</span>
+                <span id="in-game-clock" class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">Day Phase · 16:00</span>
             </div>
             <div id="in-game-role" class="font-display text-xs tracking-[0.1em] text-gold font-bold"></div>
         </div>
@@ -361,8 +361,9 @@
         document.getElementById('in-game-role').innerText = `${myData.name} [ ${myData.role} ]`;
         showScreen(mainGameScreen);
         
-        // 게임 시작 시 낮 기본 메뉴 호출
+        // 게임 시작 시 낮 기본 메뉴 호출 및 시간 타이머 시작
         renderDayDefault();
+        startDayPhaseClock();
     });
 
     // --- 2. 로비 컨트롤 로직 ---
@@ -374,7 +375,66 @@
         socket.emit('startGame', { roomNum: currentRoom });
     });
 
-    // --- 3. 조작화면 (동적 UI 렌더링 로직) ---
+    // --- 3. 게임 시스템 로직 (타이머 및 시간 계산) ---
+    
+    let gameClockInterval = null;
+
+    // 분 단위의 시간을 HH:MM 포맷으로 변환하는 함수
+    function formatTime(totalMinutes) {
+        const h = Math.floor(totalMinutes / 60);
+        const m = totalMinutes % 60;
+        // 24시인 경우 24:00으로 표기, 나머지는 00을 채움
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    // 낮 시간 타이머 시작 (현실 240초 = 게임 16:00 ~ 24:00)
+    function startDayPhaseClock() {
+        let elapsedSeconds = 0;
+        const clockEl = document.getElementById('in-game-clock');
+        if(clockEl) clockEl.innerText = "DAY PHASE · 16:00";
+
+        gameClockInterval = setInterval(() => {
+            elapsedSeconds++;
+            // 시작 시간: 16시(960분). 현실 1초당 게임 2분 증가
+            const totalMins = 960 + (elapsedSeconds * 2);
+            
+            if (clockEl) {
+                clockEl.innerText = `DAY PHASE · ${formatTime(totalMins)}`;
+            }
+
+            // 240초 도달 시 (24:00)
+            if (elapsedSeconds >= 240) {
+                clearInterval(gameClockInterval);
+                transitionToNightPhase(); // 밤으로 전환
+            }
+        }, 1000); // 1초마다 실행
+    }
+
+    // 밤(숙소) 화면으로 전환하는 함수
+    window.transitionToNightPhase = () => {
+        const clockEl = document.getElementById('in-game-clock');
+        if(clockEl) clockEl.innerText = "NIGHT PHASE · 00:00";
+        
+        // 유저에게 알림 띄우기
+        showAlert("24:00이 되어 숙소로 이동합니다.\n밤 시간이 시작되었습니다.");
+        
+        // 메인 이미지 숙소로 변경
+        updateMainDisplay('Night_Room.jpg');
+        
+        // 밤 전용 조작화면 렌더링 (턴제)
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto">
+                <div class="text-center mb-2 border-b border-gold/30 pb-2">
+                    <span class="font-display text-gold tracking-widest text-xs uppercase">자정 (00:00 ~ 04:00)</span>
+                </div>
+                <button class="btn-deco min-h-[56px] text-xs px-2 text-center">협력 게임 진행</button>
+                <button class="btn-deco min-h-[56px] text-xs px-2 text-center">개인 정비 및 메일함</button>
+                <button class="btn-deco btn-solid min-h-[56px] mt-2 text-obsidian font-bold">턴 넘기기 (NEXT TURN)</button>
+            </div>
+        `;
+    };
+
+    // --- 4. 조작화면 (동적 UI 렌더링 로직) ---
     
     // 메인 이미지 변경 함수 (메신저 초기화 기능 추가)
     function updateMainDisplay(filename) {
@@ -444,10 +504,8 @@
 
     // [상태 3-1] 바텐더와 대화하기 연출
     window.talkToBartender = () => {
-        // 1. 메인화면에 바텐더 이미지 띄우기
         updateMainDisplay('bartender.jpg');
         
-        // 조작화면 임시 변경 (연출이 끝날 때까지 유저가 다른 걸 누르지 못하게 '접근 중...' 출력)
         controlPanel.innerHTML = `
             <div class="w-full flex justify-center items-center h-full">
                 <span class="font-display text-gold tracking-[0.2em] animate-pulse">접근 중...</span>
@@ -456,33 +514,26 @@
 
         const displayContainer = mainImage.parentElement;
         
-        // 2. 80% 불투명도의 검은색 화면(오버레이) 생성
         const overlay = document.createElement('div');
         overlay.id = 'black-overlay';
         overlay.className = 'absolute inset-0 bg-black/80 z-30 opacity-0 transition-opacity duration-300';
         displayContainer.appendChild(overlay);
 
-        // 검은 화면 부드럽게 나타나기
         setTimeout(() => { overlay.style.opacity = '1'; }, 50);
 
-        // 1초(1000ms) 대기 후 메신저 출력
         setTimeout(() => {
-            // 사진 중앙의 글씨(파일명) 숨기기
             mainImageText.parentElement.style.display = 'none';
 
-            // 3. 메신저 형태의 텍스트 UI 생성
             const messenger = document.createElement('div');
             messenger.id = 'messenger-ui';
             messenger.className = 'absolute inset-x-4 bottom-4 z-40 bg-obsidian/95 border border-gold/50 p-4 shadow-gold-glow flex flex-col gap-2 double-frame';
             
-            // 4. 바텐더의 대사 출력
             messenger.innerHTML = `
                 <span class="font-display text-gold text-[10px] tracking-widest uppercase border-b border-gold/30 pb-1 w-fit">Bartender</span>
                 <p class="font-body text-champagne text-sm tracking-wide leading-relaxed">"무슨 일이시죠?"</p>
             `;
             displayContainer.appendChild(messenger);
 
-            // 5. 선택지 2가지와 돌아가기 버튼 출력
             controlPanel.innerHTML = `
                 <div class="w-full flex flex-col gap-3 my-auto">
                     <button class="btn-deco min-h-[56px] text-xs px-2 text-center">술 한잔 하고싶어서요</button>
@@ -490,7 +541,7 @@
                     <button onclick="renderInvestigateMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기 (RETURN)</button>
                 </div>
             `;
-        }, 1000); // 1000 = 1초
+        }, 1000); 
     };
 
 </script>
