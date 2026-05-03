@@ -153,9 +153,38 @@ io.on('connection', (socket) => {
                 socket.emit('slotResult', { result: [s1, s2, s3], msg: msg });
                 return; // 기존 gameResult emit을 타지 않도록 return
             case 'roulette':
-                const rouletteResult = Math.floor(Math.random() * 37); // 0~36
-                resultMessage = `[룰렛] 휠이 멈췄습니다. 결과는 [ ${rouletteResult} ]!`;
-                break;
+                // data 에는 유저가 베팅한 옵션이 들어옴 (예: 'Red', '0', '1st 12', '15' 등)
+                const rouletteResultNum = Math.floor(Math.random() * 37); // 0~36 중 하나 추첨
+                const redsArr = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+                
+                const isR = redsArr.includes(rouletteResultNum);
+                const isB = rouletteResultNum !== 0 && !isR;
+                const isE = rouletteResultNum !== 0 && rouletteResultNum % 2 === 0;
+                const isO = rouletteResultNum !== 0 && rouletteResultNum % 2 !== 0;
+                
+                let isWin = false;
+                let bet = data;
+                
+                // 베팅 적중 판정 로직
+                if (bet === 'Red' && isR) isWin = true;
+                else if (bet === 'Black' && isB) isWin = true;
+                else if (bet === 'Even' && isE) isWin = true;
+                else if (bet === 'Odd' && isO) isWin = true;
+                else if (bet === '1-18' && rouletteResultNum >= 1 && rouletteResultNum <= 18) isWin = true;
+                else if (bet === '19-36' && rouletteResultNum >= 19 && rouletteResultNum <= 36) isWin = true;
+                else if (bet === '1st 12' && rouletteResultNum >= 1 && rouletteResultNum <= 12) isWin = true;
+                else if (bet === '2nd 12' && rouletteResultNum >= 13 && rouletteResultNum <= 24) isWin = true;
+                else if (bet === '3rd 12' && rouletteResultNum >= 25 && rouletteResultNum <= 36) isWin = true;
+                else if (bet === String(rouletteResultNum)) isWin = true; // 특정 숫자 맞춤
+
+                let colorStr = rouletteResultNum === 0 ? '그린' : (isR ? '레드' : '블랙');
+                let winMsg = isWin ? "🎉 당첨입니다! 배당금을 획득했습니다. 🎉" : "❌ 아쉽습니다. 베팅에 실패했습니다.";
+                
+                let finalMsg = `[룰렛] 휠이 멈췄습니다.\n결과: [ ${rouletteResultNum} ] (${colorStr})\n\n${winMsg}`;
+
+                // 클라이언트에게 서버가 추첨한 번호를 전송 (Canvas에서 해당 칸에 멈추도록)
+                socket.emit('rouletteResult', { resultNum: rouletteResultNum, msg: finalMsg });
+                return;
             case 'graph_start':
                 resultMessage = `[그래프] 배당률 상승 시작... 타이밍을 맞춰 멈추세요!`;
                 break;

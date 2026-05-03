@@ -561,19 +561,22 @@
         // 숨겨뒀던 파일명 명패 다시 보이게 복구
         mainImageText.parentElement.style.display = 'flex';
 
-        // 🛑 슬롯머신 등 진행 중이던 애니메이션 끄기 🛑
-        if (typeof slotAnimId !== 'undefined') {
-            cancelAnimationFrame(slotAnimId);
-        }
+        // 🛑 진행 중이던 물리 엔진 애니메이션 끄기 🛑
+        if (typeof slotAnimId !== 'undefined') cancelAnimationFrame(slotAnimId);
+        if (typeof window.rouletteAnimId !== 'undefined') cancelAnimationFrame(window.rouletteAnimId);
         window.slotState = 'closed';
+        window.rouletteState = 'closed';
 
         // 게임 화면 등에서 만들었던 요소 지우기
         const existingOverlay = document.getElementById('black-overlay');
         const existingMessenger = document.getElementById('messenger-ui');
         const existingGameOverlay = document.getElementById('game-item-overlay');
+        const existingBoard = document.getElementById('roulette-board-overlay'); // 룰렛 베팅판
+        
         if(existingOverlay) existingOverlay.remove();
         if(existingMessenger) existingMessenger.remove();
         if(existingGameOverlay) existingGameOverlay.remove();
+        if(existingBoard) existingBoard.remove();
 
         currentGameData = {}; // 게임 진입시 데이터 초기화
     }
@@ -1027,39 +1030,297 @@
         }
     };
 
-    // 3. 룰렛
+// 3. 룰렛 (Canvas 물리엔진 및 카지노식 베팅판 UI)
+    window.rouletteAnimId = undefined;
+    window.rouletteState = 'closed'; 
+    window.wheelAngle = 0;
+    window.ballAngleOffset = 0;
+    window.ballRadius = 105;
+    window.wheelSpeed = 0.01;
+    window.ballAngleOffsetSpeed = 0;
+
     window.renderRoulette = () => {
         updateMainDisplay('Roulette.jpg');
+        mainImage.style.display = 'none'; 
+        mainImageText.parentElement.style.display = 'none';
+
+        window.rouletteState = 'idle'; 
+        window.wheelAngle = 0;
+        window.ballAngleOffset = 0;
+        window.ballRadius = 105;
+        window.wheelSpeed = 0.01;
+
+        // 메인 화면에 룰렛 휠(Canvas) 배치
+        createGameOverlay(`
+            <div class="relative shadow-gold-glow-intense border-[6px] border-obsidian rounded-full overflow-hidden bg-charcoal w-[240px] h-[240px]">
+                <canvas id="roulette-canvas" width="240" height="240" class="bg-obsidian w-full h-full"></canvas>
+                <div class="absolute inset-0 pointer-events-none rounded-full shadow-[inset_0_0_25px_rgba(0,0,0,0.9)]"></div>
+            </div>
+        `, true);
+
+        // 하단 조작 패널
         controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-3 my-auto">
-                <div class="grid grid-cols-3 gap-2">
-                    <button onclick="setRouletteBet('red')" class="btn-deco h-12 text-xs border-red-500 text-red-500 hover:bg-red-900/50 hover:text-white">Red</button>
-                    <button onclick="setRouletteBet('black')" class="btn-deco h-12 text-xs border-gray-500 text-gray-400 hover:bg-gray-800 hover:text-white">Black</button>
-                    <button onclick="showRouletteNumbers()" class="btn-deco h-12 text-xs">숫자 선택</button>
+            <div class="w-full flex flex-col gap-2 my-auto">
+                <div class="text-center mb-1">
+                    <span class="font-display text-gold tracking-widest text-[11px] uppercase bg-black/50 px-3 py-1.5 rounded border border-gold/30 transition-colors duration-300" id="roulette-status">베팅을 선택하십시오</span>
                 </div>
-                <button onclick="playRoulette()" class="btn-deco min-h-[56px] text-xs">시작하기</button>
-                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="openRouletteBoard()" class="btn-deco min-h-[48px] text-xs bg-green-900/40 hover:bg-green-900/80 shadow-[0_0_10px_rgba(20,83,45,0.5)]">베팅판 열기</button>
+                    <button id="btn-spin-roulette" onclick="playRoulette()" class="btn-deco min-h-[48px] text-xs border-red-500 text-red-500 hover:bg-red-900/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">스핀 (SPIN)</button>
+                </div>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[48px] mt-1 text-obsidian">돌아가기 (RETURN)</button>
             </div>
         `;
-    };
-    window.setRouletteBet = (type) => {
-        currentGameData.rouletteBet = type;
-        showAlert(`${type.toUpperCase()} 에 베팅을 예약했습니다.`);
-    };
-    window.showRouletteNumbers = () => {
-        mainImageText.parentElement.style.display = 'none';
-        
-        let gridHTML = `<div class="grid grid-cols-6 gap-1 w-full max-w-[280px] p-2 bg-obsidian/80 border border-gold blink-effect">`;
-        for(let i=0; i<=36; i++) {
-            gridHTML += `<button onclick="setRouletteBet(${i})" class="game-item-btn p-1 border border-gold/40 text-gold text-[10px] font-mono hover:bg-gold hover:text-black">${i}</button>`;
+
+        const canvas = document.getElementById('roulette-canvas');
+        const ctx = canvas.getContext('2d');
+        const cx = 120, cy = 120;
+        const radius = 100;
+        const pocketAngle = (Math.PI * 2) / 37;
+        const wheelNumbers = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+        const reds = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+
+        function drawRoulette() {
+            if (window.rouletteState === 'closed') return;
+
+            // 상태에 따른 물리 연산
+            if (window.rouletteState === 'spinning') {
+                window.wheelAngle += window.wheelSpeed;
+                window.ballAngleOffset += window.ballAngleOffsetSpeed;
+            } else if (window.rouletteState === 'stopping') {
+                window.stopFrame++;
+                let t = window.stopFrame / window.stopDuration;
+                if (t > 1) t = 1;
+                let easeOut = 1 - Math.pow(1 - t, 3);
+                
+                // 공이 서서히 휠의 해당 숫자 칸(70px 반경)으로 빨려 들어가는 계산
+                window.ballAngleOffset = window.startOffset + window.totalTravel * easeOut;
+                window.ballRadius = 105 - 35 * easeOut; 
+                window.wheelAngle += window.wheelSpeed * (1 - easeOut); // 휠도 서서히 정지
+                
+                if (t === 1) {
+                    window.rouletteState = 'idle';
+                    setTimeout(() => {
+                        showAlert(window.rouletteResultMsg);
+                        document.getElementById('btn-spin-roulette').disabled = false;
+                        document.getElementById('btn-spin-roulette').innerText = '스핀 (SPIN)';
+                    }, 500);
+                }
+            } else if (window.rouletteState === 'idle') {
+                window.wheelAngle += 0.002; // 대기 중엔 아주 천천히 회전
+            }
+
+            // --- 렌더링 부 ---
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 바깥쪽 마호가니 나무 & 금장 테두리
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius + 15, 0, 2*Math.PI);
+            ctx.fillStyle = '#4a2f1d'; 
+            ctx.fill();
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#D4AF37'; 
+            ctx.stroke();
+
+            // 휠 회전 적용
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(window.wheelAngle);
+
+            for (let i = 0; i < 37; i++) {
+                let num = wheelNumbers[i];
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, radius, i * pocketAngle - pocketAngle/2, (i+1) * pocketAngle - pocketAngle/2);
+                ctx.lineTo(0, 0);
+                
+                // 색상 배치 (유럽식)
+                if (num === 0) ctx.fillStyle = '#166534'; 
+                else if (reds.includes(num)) ctx.fillStyle = '#DC2626'; 
+                else ctx.fillStyle = '#171717'; 
+                
+                ctx.fill();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)';
+                ctx.stroke(); 
+
+                // 숫자 텍스트 그리기 (방사형으로 배치)
+                ctx.save();
+                ctx.rotate(i * pocketAngle);
+                ctx.translate(radius - 12, 0);
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 9px "Josefin Sans", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.rotate(Math.PI / 2); // 글자를 돌려서 가독성 높임
+                ctx.fillText(num, 0, 0);
+                ctx.restore();
+            }
+            
+            // 중앙 금속 십자 장식
+            ctx.beginPath();
+            ctx.arc(0, 0, radius - 30, 0, 2*Math.PI);
+            ctx.fillStyle = '#D4AF37';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#000';
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(0, 0, radius - 40, 0, 2*Math.PI);
+            ctx.fillStyle = '#141414'; 
+            ctx.fill();
+
+            for(let j=0; j<8; j++) {
+                ctx.save();
+                ctx.rotate((Math.PI * 2 / 8) * j);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(radius - 30, 0);
+                ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.restore();
+            }
+            ctx.restore();
+
+            // 쇠구슬 그리기
+            let absoluteBallAngle = window.wheelAngle + window.ballAngleOffset;
+            let bx = cx + Math.cos(absoluteBallAngle) * window.ballRadius;
+            let by = cy + Math.sin(absoluteBallAngle) * window.ballRadius;
+            
+            ctx.beginPath();
+            ctx.arc(bx, by, 5, 0, 2*Math.PI);
+            ctx.fillStyle = '#FFFFFF';
+            // 3D 효과를 위한 구슬 섀도우
+            ctx.shadowColor = 'rgba(0,0,0,0.9)';
+            ctx.shadowBlur = 5;
+            ctx.shadowOffsetX = -2;
+            ctx.shadowOffsetY = 2;
+            ctx.fill(); 
+            ctx.shadowColor = 'transparent'; 
+            
+            window.rouletteAnimId = requestAnimationFrame(drawRoulette);
         }
-        gridHTML += `</div>`;
-        createGameOverlay(gridHTML, false);
+        drawRoulette();
     };
+
+    // 📱 [디테일] 녹색 카지노 매트 베팅판 UI 생성 함수
+    window.openRouletteBoard = () => {
+        const displayContainer = document.getElementById('game-item-overlay') || mainImage.parentElement;
+        
+        let boardHTML = `
+            <div id="roulette-board-overlay" class="absolute inset-0 z-40 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-3 animate-fade-in">
+                <div class="w-full max-w-[280px] bg-green-900 p-2 border-2 border-gold rounded shadow-gold-glow-intense overflow-y-auto filter-scroll" style="max-height: 75%;">
+                    <div class="w-full flex justify-between items-end mb-2">
+                        <span class="text-gold font-display text-xs tracking-widest">PLACE YOUR BETS</span>
+                        <span class="text-white/50 text-[9px] uppercase">European Roulette</span>
+                    </div>
+                    
+                    <div onclick="selectRouletteBet('0')" class="w-full text-center border border-white text-white py-2 mb-1 cursor-pointer hover:bg-white/20 font-bold shadow-sm transition-colors">0 (ZERO)</div>
+                    
+                    <div class="flex gap-1 mb-1">
+                        <div class="flex flex-col w-8 gap-1">
+                            <div onclick="selectRouletteBet('1st 12')" class="flex-1 flex items-center justify-center border border-white text-white text-[10px] font-bold cursor-pointer hover:bg-white/20 transition-colors" style="writing-mode: vertical-rl; text-orientation: mixed;">1st 12</div>
+                            <div onclick="selectRouletteBet('2nd 12')" class="flex-1 flex items-center justify-center border border-white text-white text-[10px] font-bold cursor-pointer hover:bg-white/20 transition-colors" style="writing-mode: vertical-rl; text-orientation: mixed;">2nd 12</div>
+                            <div onclick="selectRouletteBet('3rd 12')" class="flex-1 flex items-center justify-center border border-white text-white text-[10px] font-bold cursor-pointer hover:bg-white/20 transition-colors" style="writing-mode: vertical-rl; text-orientation: mixed;">3rd 12</div>
+                        </div>
+                        
+                        <div class="grid grid-cols-3 gap-1 flex-1">
+        `;
+        
+        const reds = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+        for(let i=1; i<=36; i++) {
+            let color = reds.includes(i) ? 'bg-red-600' : 'bg-black';
+            boardHTML += `<div onclick="selectRouletteBet('${i}')" class="${color} text-white font-bold text-sm flex justify-center items-center py-2 border border-white/50 cursor-pointer hover:opacity-70 transition-opacity">${i}</div>`;
+        }
+        
+        boardHTML += `
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-1 mb-1">
+                        <div onclick="selectRouletteBet('1-18')" class="text-white text-center py-1.5 border border-white cursor-pointer hover:bg-white/20 text-xs font-bold transition-colors">1 to 18</div>
+                        <div onclick="selectRouletteBet('19-36')" class="text-white text-center py-1.5 border border-white cursor-pointer hover:bg-white/20 text-xs font-bold transition-colors">19 to 36</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-1 mb-1">
+                        <div onclick="selectRouletteBet('Even')" class="text-white text-center py-1.5 border border-white cursor-pointer hover:bg-white/20 text-xs font-bold transition-colors">EVEN (짝수)</div>
+                        <div onclick="selectRouletteBet('Odd')" class="text-white text-center py-1.5 border border-white cursor-pointer hover:bg-white/20 text-xs font-bold transition-colors">ODD (홀수)</div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-1">
+                        <div onclick="selectRouletteBet('Red')" class="bg-red-600 text-white text-center py-2 border border-white cursor-pointer hover:opacity-80 text-xs font-bold transition-opacity">RED (빨강)</div>
+                        <div onclick="selectRouletteBet('Black')" class="bg-black text-white text-center py-2 border border-white cursor-pointer hover:opacity-80 text-xs font-bold transition-opacity">BLACK (검정)</div>
+                    </div>
+                </div>
+                <button onclick="closeRouletteBoard()" class="btn-deco btn-solid mt-4 h-12 w-full max-w-[280px]">닫기 (CLOSE)</button>
+            </div>
+        `;
+        displayContainer.insertAdjacentHTML('beforeend', boardHTML);
+    };
+
+    window.closeRouletteBoard = () => {
+        const board = document.getElementById('roulette-board-overlay');
+        if(board) board.remove();
+    };
+
+    window.selectRouletteBet = (bet) => {
+        currentGameData.rouletteBet = bet;
+        const statusEl = document.getElementById('roulette-status');
+        statusEl.innerText = `베팅 완료: [ ${bet} ]`;
+        
+        // 시각적 피드백 효과 (깜빡임)
+        statusEl.classList.remove('text-gold', 'border-gold/30');
+        statusEl.classList.add('text-green-400', 'border-green-400', 'bg-green-900/50');
+        setTimeout(() => {
+            statusEl.classList.add('text-gold', 'border-gold/30');
+            statusEl.classList.remove('text-green-400', 'border-green-400', 'bg-green-900/50');
+        }, 600);
+        
+        closeRouletteBoard();
+    };
+
     window.playRoulette = () => {
-        if(currentGameData.rouletteBet === undefined) { showAlert("베팅할 색상이나 숫자를 선택하세요."); return; }
+        if(!currentGameData.rouletteBet) {
+            showAlert("먼저 베팅판을 열어 베팅을 선택하십시오.");
+            return;
+        }
+        if(window.rouletteState === 'spinning' || window.rouletteState === 'stopping') return;
+
+        window.rouletteState = 'spinning';
+        document.getElementById('btn-spin-roulette').disabled = true;
+        document.getElementById('btn-spin-roulette').innerText = '회전 중...';
+
+        // 힘차게 스핀 시작 (휠과 공이 반대로 빠르게 회전)
+        window.wheelSpeed = 0.05;
+        window.ballAngleOffsetSpeed = 0.3; 
+        window.ballRadius = 108; // 바깥 라인에서 회전
+
         socket.emit('playGame', { roomNum: currentRoom, game: 'roulette', data: currentGameData.rouletteBet });
     };
+
+    // 서버에서 룰렛 당첨 숫자 수신
+    socket.off('rouletteResult').on('rouletteResult', (data) => {
+        if(window.rouletteState === 'closed') return;
+        
+        window.rouletteState = 'stopping';
+        window.rouletteResultMsg = data.msg;
+        
+        const wheelNumbers = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
+        const targetIndex = wheelNumbers.indexOf(data.resultNum);
+        const pocketAngle = (Math.PI * 2) / 37;
+        
+        // 애니메이션을 부드럽게 감속시키며 해당 칸에 꽂히도록 수학적 계산
+        let currentMod = window.ballAngleOffset % (Math.PI * 2);
+        let targetMod = targetIndex * pocketAngle;
+        let diff = targetMod - currentMod;
+        if (diff < 0) diff += Math.PI * 2;
+        
+        // 4바퀴 더 빙빙 돌다가 안착하게 극적 효과 세팅
+        window.totalTravel = diff + Math.PI * 2 * 4;
+        window.startOffset = window.ballAngleOffset;
+        window.stopDuration = 220; // 약 3.5초에 걸쳐 정지
+        window.stopFrame = 0;
+    });
 
     // 4. 그래프
     window.renderGraph = () => {
