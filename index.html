@@ -227,9 +227,15 @@
     <div id="main-game-screen" class="screen">
         
         <div class="h-14 bg-obsidian border-b border-gold/40 flex justify-between items-center px-5 relative z-20 shadow-gold-glow shrink-0">
-            <div class="flex items-center gap-2">
-                <span class="diamond-dot" style="width: 4px; height: 4px;"></span>
-                <span id="in-game-clock" class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">Day Phase · 16:00</span>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                    <span class="diamond-dot" style="width: 4px; height: 4px;"></span>
+                    <span id="in-game-clock" class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">Day Phase · 16:00</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="currency-separator" class="text-gold/50 text-[10px] mt-[1px]">|</span>
+                    <span id="in-game-currency" class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">100 G</span>
+                </div>
             </div>
             <div id="in-game-role" class="font-display text-xs tracking-[0.1em] text-gold font-bold"></div>
         </div>
@@ -273,6 +279,31 @@
     let myData = null;
     let currentRoom = null;
     let currentGameData = {}; // 선택된 숫자나 판돈 등 임시 저장소
+
+    // --- 💰 재화 시스템 관리 ---
+    window.playerCurrency = 100; // 기본 초기 재화
+    
+    // 재화 단위 변환 로직 (k, m)
+    window.formatCurrency = (amount) => {
+        if (amount >= 1000000) {
+            // 소수점 2자리 표기 (ex: 1,780,342 -> 1.78m)
+            return (Math.floor(amount / 10000) / 100).toFixed(2) + 'm G';
+        } else if (amount >= 1000) {
+            // 소수점 1자리 표기 (ex: 2,738 -> 2.7k)
+            return (Math.floor(amount / 100) / 10).toFixed(1) + 'k G';
+        } else {
+            // 천 단위 미만 (ex: 999)
+            return amount + ' G';
+        }
+    };
+
+    // UI에 현재 재화 업데이트
+    window.updateCurrencyDisplay = () => {
+        const currencyEl = document.getElementById('in-game-currency');
+        if(currencyEl) {
+            currencyEl.innerText = window.formatCurrency(window.playerCurrency);
+        }
+    };
 
     // DOM 요소
     const loginScreen = document.getElementById('login-screen');
@@ -459,6 +490,16 @@
             clockEl.className = "font-mono text-[9px] tracking-[0.2em] text-red-500 uppercase";
             // 기존 다이아몬드 지우고 REC 붉은 점 추가
             clockEl.parentElement.innerHTML = `<span class="rec-dot mr-2"></span>` + clockEl.outerHTML; 
+        }
+
+        // 💰 재화 텍스트 해커 테마(레드/모노)로 교체
+        const currencyEl = document.getElementById('in-game-currency');
+        if (currencyEl) {
+            currencyEl.className = "font-mono text-[9px] tracking-[0.2em] text-red-500/80 uppercase";
+        }
+        const separatorEl = document.getElementById('currency-separator');
+        if (separatorEl) {
+            separatorEl.className = "text-red-900 text-[10px] mt-[1px]";
         }
         
         // 2. 전체 테마 교체 (골드 카지노 -> 블랙/레드 해커 테마)
