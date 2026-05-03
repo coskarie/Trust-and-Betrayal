@@ -626,161 +626,204 @@
     // 🎲 6종 카지노 게임 구현부
     // ==========================================
 
-    // 1. 구슬뽑기 (이미지 없이 Canvas 물리엔진으로 구현)
+    // 1. 구슬뽑기 (보강된 물리 엔진: 깔대기, 카메라 무빙, 속도 조절)
     window.renderGacha = () => {
-        // 배경 이미지를 숨기고 검은 바탕으로 처리
         mainImage.style.display = 'none'; 
         mainImageText.parentElement.style.display = 'none';
 
-        // 5x2 구슬 선택 UI 및 애니메이션용 Canvas 캔버스(처음엔 숨김) 세팅
         let marblesHTML = `
             <div class="flex flex-col items-center gap-4 w-full" id="gacha-selection-ui">
-                <div class="font-display text-gold tracking-widest text-xs">우승 구슬을 예측하세요</div>
+                <div class="font-display text-gold tracking-widest text-[10px] uppercase opacity-70">Predict the Winner</div>
                 <div class="grid grid-cols-5 gap-3 w-full max-w-[250px]">
         `;
         for(let i=1; i<=10; i++) {
-            marblesHTML += `<button onclick="selectGachaMarble(${i})" class="game-item-btn aspect-square rounded-full border-2 border-gold text-gold font-bold text-lg flex justify-center items-center shadow-gold-glow">${i}</button>`;
+            marblesHTML += `<button onclick="selectGachaMarble(${i})" class="game-item-btn aspect-square rounded-full border border-gold/50 text-gold font-body text-lg flex justify-center items-center hover:bg-gold/20 shadow-gold-glow">${i}</button>`;
         }
         marblesHTML += `
                 </div>
             </div>
-            <canvas id="gacha-canvas" width="300" height="400" class="hidden bg-obsidian border border-gold/50 rounded-lg shadow-gold-glow"></canvas>
+            <canvas id="gacha-canvas" width="300" height="300" class="hidden bg-obsidian border border-gold/30 shadow-gold-glow-intense"></canvas>
         `;
         createGameOverlay(marblesHTML, true);
 
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto text-center">
-                <p class="font-display text-gold text-xs tracking-widest mb-2" id="gacha-status">구슬을 터치하여 선택하세요.</p>
-                <button onclick="playGacha()" class="btn-deco min-h-[56px] text-xs">구슬 굴리기</button>
-                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+                <p class="font-display text-gold text-[11px] tracking-widest mb-2 uppercase" id="gacha-status">Select your lucky number</p>
+                <button onclick="playGacha()" class="btn-deco min-h-[56px] text-xs">구슬 굴리기 (RELEASE)</button>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2 text-obsidian">돌아가기 (RETURN)</button>
             </div>
         `;
     };
 
     window.selectGachaMarble = (num) => {
         currentGameData.gachaTarget = num;
-        document.getElementById('gacha-status').innerText = `선택된 구슬: [ ${num} ]`;
+        document.getElementById('gacha-status').innerText = `SELECTED AGENT: [ ${num} ]`;
+        // 버튼 시각적 강조 피드백
+        document.querySelectorAll('#gacha-selection-ui button').forEach((btn, idx) => {
+            if(idx + 1 === num) {
+                btn.style.borderColor = "#D4AF37";
+                btn.style.backgroundColor = "rgba(212, 175, 55, 0.3)";
+            } else {
+                btn.style.borderColor = "rgba(212, 175, 55, 0.5)";
+                btn.style.backgroundColor = "transparent";
+            }
+        });
     };
 
     window.playGacha = () => {
-        if(!currentGameData.gachaTarget) { showAlert("먼저 메인 화면에서 구슬을 선택하세요."); return; }
+        if(!currentGameData.gachaTarget) { showAlert("먼저 우승할 구슬 번호를 선택하십시오."); return; }
 
-        // UI 전환: 번호 선택창 숨기고 핀볼 캔버스 노출
         document.getElementById('gacha-selection-ui').style.display = 'none';
         const canvas = document.getElementById('gacha-canvas');
         canvas.classList.remove('hidden');
         canvas.classList.add('block');
 
-        // 하단 버튼 일시 숨김 (게임 진행 중 조작 방지)
         controlPanel.innerHTML = `
             <div class="w-full flex justify-center items-center h-full">
-                <span class="font-display text-gold tracking-[0.2em] animate-pulse">결과 추첨 중...</span>
+                <span class="font-display text-gold tracking-[0.3em] text-xs animate-pulse uppercase">Tracking Marbles...</span>
             </div>
         `;
 
-        // --- 핀볼(사다리) 물리 엔진 로직 ---
         const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
+        const viewW = canvas.width;
+        const viewH = canvas.height;
+        const worldH = 1000; // 실제 트랙 길이 (화면의 약 3.3배)
 
-        // 장애물(핀) 생성: 삼각형 형태로 지그재그 배치
+        // 장애물(핀) 생성 (더 긴 트랙에 맞춰 많이 배치)
         const pegs = [];
-        for(let row=0; row<9; row++) {
-            let cols = row % 2 === 0 ? 6 : 5;
+        for(let row=0; row<20; row++) {
+            let cols = row % 2 === 0 ? 7 : 6;
             for(let c=0; c<cols; c++) {
                 pegs.push({
-                    x: 25 + c * 50 + (row % 2 === 0 ? 0 : 25),
-                    y: 60 + row * 35,
-                    r: 4
+                    x: 20 + c * 45 + (row % 2 === 0 ? 0 : 22),
+                    y: 100 + row * 40,
+                    r: 3
                 });
             }
         }
 
-        // 구슬 10개 생성
+        // 깔대기(Funnel) 벽 데이터
+        const funnelLeft = { x1: 0, y1: 850, x2: 130, y2: 980 };
+        const funnelRight = { x1: 300, y1: 850, x2: 170, y2: 980 };
+
         const balls = [];
-        const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#14b8a6', '#8b5cf6', '#f43f5e'];
+        const colors = ['#D4AF37', '#E5E7EB', '#60A5FA', '#F87171', '#34D399', '#FBBF24', '#A78BFA', '#F472B6', '#94A3B8', '#F97316'];
         for(let i=1; i<=10; i++) {
             balls.push({
                 num: i,
-                x: 15 + i * 27, // 나란히 배치
-                y: 10 + Math.random() * 20, // 떨어지는 시작 높이 살짝 다르게
-                vx: (Math.random() - 0.5) * 2, // 좌우 초기 속도
+                x: 30 + i * 22 + (Math.random() * 10),
+                y: 20 + Math.random() * 30,
+                vx: (Math.random() - 0.5) * 1.5,
                 vy: 0,
-                r: 10,
+                r: 8,
                 color: colors[i-1]
             });
         }
 
+        let cameraY = 0;
         let animationId;
         let finished = false;
 
         function updatePhysics() {
             if(finished) return;
-            ctx.clearRect(0, 0, width, height);
+            ctx.clearRect(0, 0, viewW, viewH);
+
+            // 카메라 로직: 가장 멀리 내려간 공을 추적
+            let leadingY = 0;
+            for(let b of balls) if(b.y > leadingY) leadingY = b.y;
+            
+            // 카메라가 부드럽게 따라가도록 설정 (viewH/2 지점을 기준으로 트래킹)
+            let targetCameraY = Math.max(0, Math.min(leadingY - viewH/2, worldH - viewH));
+            cameraY += (targetCameraY - cameraY) * 0.1; // 부드러운 보간
+
+            ctx.save();
+            ctx.translate(0, -cameraY); // 카메라 좌표계 적용
+
+            // 깔대기 그리기
+            ctx.strokeStyle = '#D4AF37';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(funnelLeft.x1, funnelLeft.y1); ctx.lineTo(funnelLeft.x2, funnelLeft.y2);
+            ctx.moveTo(funnelRight.x1, funnelRight.y1); ctx.lineTo(funnelRight.x2, funnelRight.y2);
+            ctx.stroke();
 
             // 핀 그리기
-            ctx.fillStyle = '#D4AF37'; // 골드 색상
+            ctx.fillStyle = 'rgba(212, 175, 55, 0.4)';
             for(let p of pegs) {
                 ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
             }
 
-            // 구슬 이동 및 충돌 계산
+            // 구슬 시뮬레이션
             for(let b of balls) {
-                b.vy += 0.15; // 중력 적용
+                b.vy += 0.08; // 하강 속도 조절 (기존 0.15에서 감소)
                 b.x += b.vx;
                 b.y += b.vy;
 
-                // 양쪽 벽 충돌
-                if(b.x < b.r) { b.x = b.r; b.vx *= -0.6; }
-                if(b.x > width - b.r) { b.x = width - b.r; b.vx *= -0.6; }
+                // 벽 충돌 (옆면)
+                if(b.x < b.r) { b.x = b.r; b.vx *= -0.5; }
+                if(b.x > viewW - b.r) { b.x = viewW - b.r; b.vx *= -0.5; }
 
-                // 핀과 구슬의 충돌 (원형 충돌 알고리즘)
+                // 깔대기 벽 충돌 로직 (선분-원 충돌)
+                const checkWall = (w) => {
+                    let dx = w.x2 - w.x1; let dy = w.y2 - w.y1;
+                    let l2 = dx*dx + dy*dy;
+                    let t = Math.max(0, Math.min(1, ((b.x - w.x1) * dx + (b.y - w.y1) * dy) / l2));
+                    let px = w.x1 + t * dx; let py = w.y1 + t * dy;
+                    let dist = Math.sqrt((b.x - px)**2 + (b.y - py)**2);
+                    if(dist < b.r) {
+                        let nx = (b.x - px)/dist; let ny = (b.y - py)/dist;
+                        let dot = b.vx*nx + b.vy*ny;
+                        b.vx -= 1.5*dot*nx; b.vy -= 1.5*dot*ny;
+                        b.x = px + nx * b.r; b.y = py + ny * b.r;
+                    }
+                };
+                checkWall(funnelLeft); checkWall(funnelRight);
+
+                // 핀 충돌
                 for(let p of pegs) {
-                    let dx = b.x - p.x;
-                    let dy = b.y - p.y;
+                    let dx = b.x - p.x; let dy = b.y - p.y;
                     let dist = Math.sqrt(dx*dx + dy*dy);
-                    if(dist < b.r + p.r) { // 부딪혔다면
+                    if(dist < b.r + p.r) {
                         let nx = dx/dist; let ny = dy/dist;
                         let dot = b.vx*nx + b.vy*ny;
-                        b.vx -= 2*dot*nx;
-                        b.vy -= 2*dot*ny;
-                        b.vx *= 0.5; b.vy *= 0.5; // 통통 튀는 탄성
-                        b.vx += (Math.random() - 0.5); // 멈춤 방지용 무작위 바운스
-                        
+                        b.vx -= 1.8*dot*nx; b.vy -= 1.8*dot*ny;
+                        b.vx *= 0.6; b.vy *= 0.6;
+                        b.vx += (Math.random() - 0.5) * 0.5;
                         let overlap = (b.r + p.r) - dist;
-                        b.x += nx * overlap;
-                        b.y += ny * overlap;
+                        b.x += nx * overlap; b.y += ny * overlap;
                     }
                 }
 
-                // 구슬 그리기
+                // 구슬 렌더링
                 ctx.fillStyle = b.color;
                 ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
-                ctx.fillStyle = '#fff';
-                ctx.font = 'bold 12px sans-serif';
+                // 구슬 광택 효과 (Art Deco)
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.beginPath(); ctx.arc(b.x - b.r*0.3, b.y - b.r*0.3, b.r*0.2, 0, Math.PI*2); ctx.fill();
+                
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 9px sans-serif';
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(b.num, b.x, b.y);
 
-                // 결승선(바닥) 통과 체크
-                if(b.y > height + b.r && !finished) {
+                // 우승 판정: 깔대기 구멍 통과
+                if(b.y > 990 && !finished) {
                     finished = true;
                     cancelAnimationFrame(animationId);
                     
-                    // 서버로 '실제 들어온 결과' 전송
                     socket.emit('playGame', { 
                         roomNum: currentRoom, 
                         game: 'gacha_result', 
                         data: { target: currentGameData.gachaTarget, winner: b.num } 
                     });
                     
-                    // 1.5초 뒤 메인 메뉴로 복구
-                    setTimeout(() => { renderGameMenu(); }, 1500);
-                    return;
+                    setTimeout(() => { renderGameMenu(); }, 2000);
                 }
             }
+            ctx.restore();
             if(!finished) animationId = requestAnimationFrame(updatePhysics);
         }
-        updatePhysics(); // 애니메이션 루프 시작
+        updatePhysics();
     };
 
     // 2. 슬롯 머신
