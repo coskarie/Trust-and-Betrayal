@@ -305,6 +305,72 @@
         }
     };
 
+    // --- 💰 공통 베팅 패널 UI 렌더링 함수 ---
+    window.renderBettingPanel = (onConfirm, onCancel) => {
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-2 my-auto">
+                <div class="text-center mb-1 flex justify-between items-end border-b border-gold/30 pb-1">
+                    <span class="font-display text-gold tracking-widest text-xs uppercase">베팅 금액</span>
+                    <span class="font-display text-pewter text-[10px]">보유: ${window.formatCurrency(window.playerCurrency)}</span>
+                </div>
+                <input type="number" id="bet-input" class="input-deco text-xl font-bold text-gold !py-2 bg-obsidian/50" placeholder="0" value="0">
+                <div class="grid grid-cols-4 gap-1 mt-1">
+                    <button onclick="addBet(10)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+10</button>
+                    <button onclick="addBet(50)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+50</button>
+                    <button onclick="addBet(100)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+100</button>
+                    <button onclick="addBet(1000)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+1k</button>
+                    <button onclick="addBet('HALF')" class="btn-deco min-h-[36px] text-[10px] border-pewter text-pewter hover:bg-white/10">HALF</button>
+                    <button onclick="addBet('MAX')" class="btn-deco min-h-[36px] text-[10px] border-red-500 text-red-500 col-span-3 hover:bg-red-900/30">MAX</button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mt-2">
+                    <button id="btn-cancel-bet" class="btn-deco min-h-[48px] text-xs border-pewter text-pewter">취소 (CANCEL)</button>
+                    <button id="btn-confirm-bet" class="btn-deco btn-solid min-h-[48px] text-xs">확인 (CONFIRM)</button>
+                </div>
+            </div>
+        `;
+        
+        window.addBet = (val) => {
+            const input = document.getElementById('bet-input');
+            let current = parseInt(input.value) || 0;
+            if (val === 'MAX') current = window.playerCurrency;
+            else if (val === 'HALF') current = Math.floor(window.playerCurrency / 2);
+            else current += val;
+            
+            if (current > window.playerCurrency) current = window.playerCurrency;
+            input.value = current;
+        };
+
+        document.getElementById('btn-cancel-bet').onclick = onCancel;
+        document.getElementById('btn-confirm-bet').onclick = () => {
+            const bet = parseInt(document.getElementById('bet-input').value) || 0;
+            if (bet <= 0) return showAlert("베팅 금액을 입력하십시오.");
+            if (bet > window.playerCurrency) return showAlert("보유 재화가 부족합니다.");
+            onConfirm(bet);
+        };
+    };
+
+    // --- 💰 룰렛 배당률 계산 로직 (유럽식 싱글 제로 기준) ---
+    window.calculateRoulettePayout = (bet, resultNum) => {
+        const reds = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
+        resultNum = parseInt(resultNum);
+        
+        // 제로(0)가 나오면 직접 건 사람 외엔 모두 꽝
+        if (resultNum === 0) return bet === '0' ? 36 : 0;
+
+        if (bet === resultNum.toString()) return 36; // 단일 숫자
+        if (bet === '1st 12' && resultNum >= 1 && resultNum <= 12) return 3; // 1~12
+        if (bet === '2nd 12' && resultNum >= 13 && resultNum <= 24) return 3; // 13~24
+        if (bet === '3rd 12' && resultNum >= 25 && resultNum <= 36) return 3; // 25~36
+        if (bet === '1-18' && resultNum >= 1 && resultNum <= 18) return 2; // 1~18
+        if (bet === '19-36' && resultNum >= 19 && resultNum <= 36) return 2; // 19~36
+        if (bet === 'Even' && resultNum % 2 === 0) return 2; // 짝수
+        if (bet === 'Odd' && resultNum % 2 === 1) return 2; // 홀수
+        if (bet === 'Red' && reds.includes(resultNum)) return 2; // 빨강
+        if (bet === 'Black' && !reds.includes(resultNum)) return 2; // 검정
+
+        return 0; // 해당 없음
+    };
+
     // DOM 요소
     const loginScreen = document.getElementById('login-screen');
     const lobbyScreen = document.getElementById('lobby-screen');
@@ -676,7 +742,7 @@
     // 🎲 6종 카지노 게임 구현부
     // ==========================================
 
-    // 1. 구슬뽑기 (보강된 물리 엔진: 깔대기, 카메라 무빙, 속도 조절)
+    // 1. 구슬뽑기 (베팅 시스템 포함)
     window.renderGacha = () => {
         mainImage.style.display = 'none'; 
         mainImageText.parentElement.style.display = 'none';
@@ -695,10 +761,15 @@
             <canvas id="gacha-canvas" width="300" height="300" class="hidden bg-obsidian border border-gold/30 shadow-gold-glow-intense"></canvas>
         `;
         createGameOverlay(marblesHTML, true);
+        window.renderGachaControls();
+    };
 
+    window.renderGachaControls = () => {
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto text-center">
-                <p class="font-display text-gold text-[11px] tracking-widest mb-2 uppercase" id="gacha-status">Select your lucky number</p>
+                <p class="font-display text-gold text-[11px] tracking-widest mb-2 uppercase" id="gacha-status">
+                    ${currentGameData.gachaTarget ? `SELECTED AGENT: [ ${currentGameData.gachaTarget} ]` : `Select your lucky number`}
+                </p>
                 <button onclick="playGacha()" class="btn-deco min-h-[56px] text-xs">구슬 굴리기 (RELEASE)</button>
                 <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2 text-obsidian">돌아가기 (RETURN)</button>
             </div>
@@ -707,15 +778,14 @@
 
     window.selectGachaMarble = (num) => {
         currentGameData.gachaTarget = num;
-        document.getElementById('gacha-status').innerText = `SELECTED AGENT: [ ${num} ]`;
-        // 버튼 시각적 강조 피드백
+        const statusEl = document.getElementById('gacha-status');
+        if(statusEl) statusEl.innerText = `SELECTED AGENT: [ ${num} ]`;
+        
         document.querySelectorAll('#gacha-selection-ui button').forEach((btn, idx) => {
             if(idx + 1 === num) {
-                btn.style.borderColor = "#D4AF37";
-                btn.style.backgroundColor = "rgba(212, 175, 55, 0.3)";
+                btn.style.borderColor = "#D4AF37"; btn.style.backgroundColor = "rgba(212, 175, 55, 0.3)";
             } else {
-                btn.style.borderColor = "rgba(212, 175, 55, 0.5)";
-                btn.style.backgroundColor = "transparent";
+                btn.style.borderColor = "rgba(212, 175, 55, 0.5)"; btn.style.backgroundColor = "transparent";
             }
         });
     };
@@ -723,10 +793,23 @@
     window.playGacha = () => {
         if(!currentGameData.gachaTarget) { showAlert("먼저 우승할 구슬 번호를 선택하십시오."); return; }
 
+        // 베팅 UI 호출
+        window.renderBettingPanel((betAmount) => {
+            // 베팅 성공 시 재화 차감 및 실행
+            window.playerCurrency -= betAmount;
+            window.updateCurrencyDisplay();
+            currentGameData.betAmount = betAmount;
+            window.executeGachaSpin();
+        }, () => {
+            // 취소 시 기존 컨트롤 화면으로 복구
+            window.renderGachaControls();
+        });
+    };
+
+    window.executeGachaSpin = () => {
         document.getElementById('gacha-selection-ui').style.display = 'none';
         const canvas = document.getElementById('gacha-canvas');
-        canvas.classList.remove('hidden');
-        canvas.classList.add('block');
+        canvas.classList.remove('hidden'); canvas.classList.add('block');
 
         controlPanel.innerHTML = `
             <div class="w-full flex justify-center items-center h-full">
@@ -735,88 +818,53 @@
         `;
 
         const ctx = canvas.getContext('2d');
-        const viewW = canvas.width;
-        const viewH = canvas.height;
-        const worldH = 1000; // 실제 트랙 길이 (화면의 약 3.3배)
-
-        // 장애물(핀) 생성 (더 긴 트랙에 맞춰 많이 배치)
+        const viewW = canvas.width; const viewH = canvas.height; const worldH = 1000; 
         const pegs = [];
         for(let row=0; row<20; row++) {
             let cols = row % 2 === 0 ? 7 : 6;
             for(let c=0; c<cols; c++) {
-                pegs.push({
-                    x: 20 + c * 45 + (row % 2 === 0 ? 0 : 22),
-                    y: 100 + row * 40,
-                    r: 3
-                });
+                pegs.push({ x: 20 + c * 45 + (row % 2 === 0 ? 0 : 22), y: 100 + row * 40, r: 3 });
             }
         }
-
-        // 깔대기(Funnel) 벽 데이터
         const funnelLeft = { x1: 0, y1: 850, x2: 130, y2: 980 };
         const funnelRight = { x1: 300, y1: 850, x2: 170, y2: 980 };
-
         const balls = [];
         const colors = ['#D4AF37', '#E5E7EB', '#60A5FA', '#F87171', '#34D399', '#FBBF24', '#A78BFA', '#F472B6', '#94A3B8', '#F97316'];
         for(let i=1; i<=10; i++) {
-            balls.push({
-                num: i,
-                x: 30 + i * 22 + (Math.random() * 10),
-                y: 20 + Math.random() * 30,
-                vx: (Math.random() - 0.5) * 1.5,
-                vy: 0,
-                r: 8,
-                color: colors[i-1]
-            });
+            balls.push({ num: i, x: 30 + i * 22 + (Math.random() * 10), y: 20 + Math.random() * 30, vx: (Math.random() - 0.5) * 1.5, vy: 0, r: 8, color: colors[i-1] });
         }
 
-        let cameraY = 0;
-        let animationId;
-        let finished = false;
+        let cameraY = 0; let animationId; let finished = false;
 
         function updatePhysics() {
             if(finished) return;
             ctx.clearRect(0, 0, viewW, viewH);
 
-            // 카메라 로직: 가장 멀리 내려간 공을 추적
             let leadingY = 0;
             for(let b of balls) if(b.y > leadingY) leadingY = b.y;
-            
-            // 카메라가 부드럽게 따라가도록 설정 (viewH/2 지점을 기준으로 트래킹)
             let targetCameraY = Math.max(0, Math.min(leadingY - viewH/2, worldH - viewH));
-            cameraY += (targetCameraY - cameraY) * 0.1; // 부드러운 보간
+            cameraY += (targetCameraY - cameraY) * 0.1;
 
             ctx.save();
-            ctx.translate(0, -cameraY); // 카메라 좌표계 적용
+            ctx.translate(0, -cameraY);
 
-            // 깔대기 그리기
-            ctx.strokeStyle = '#D4AF37';
-            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#D4AF37'; ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(funnelLeft.x1, funnelLeft.y1); ctx.lineTo(funnelLeft.x2, funnelLeft.y2);
             ctx.moveTo(funnelRight.x1, funnelRight.y1); ctx.lineTo(funnelRight.x2, funnelRight.y2);
             ctx.stroke();
 
-            // 핀 그리기
             ctx.fillStyle = 'rgba(212, 175, 55, 0.4)';
-            for(let p of pegs) {
-                ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
-            }
+            for(let p of pegs) { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill(); }
 
-            // 구슬 시뮬레이션
             for(let b of balls) {
-                b.vy += 0.08; // 하강 속도 조절 (기존 0.15에서 감소)
-                b.x += b.vx;
-                b.y += b.vy;
+                b.vy += 0.08; b.x += b.vx; b.y += b.vy;
 
-                // 벽 충돌 (옆면)
                 if(b.x < b.r) { b.x = b.r; b.vx *= -0.5; }
                 if(b.x > viewW - b.r) { b.x = viewW - b.r; b.vx *= -0.5; }
 
-                // 깔대기 벽 충돌 로직 (선분-원 충돌)
                 const checkWall = (w) => {
-                    let dx = w.x2 - w.x1; let dy = w.y2 - w.y1;
-                    let l2 = dx*dx + dy*dy;
+                    let dx = w.x2 - w.x1; let dy = w.y2 - w.y1; let l2 = dx*dx + dy*dy;
                     let t = Math.max(0, Math.min(1, ((b.x - w.x1) * dx + (b.y - w.y1) * dy) / l2));
                     let px = w.x1 + t * dx; let py = w.y1 + t * dy;
                     let dist = Math.sqrt((b.x - px)**2 + (b.y - py)**2);
@@ -829,44 +877,39 @@
                 };
                 checkWall(funnelLeft); checkWall(funnelRight);
 
-                // 핀 충돌
                 for(let p of pegs) {
-                    let dx = b.x - p.x; let dy = b.y - p.y;
-                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    let dx = b.x - p.x; let dy = b.y - p.y; let dist = Math.sqrt(dx*dx + dy*dy);
                     if(dist < b.r + p.r) {
-                        let nx = dx/dist; let ny = dy/dist;
-                        let dot = b.vx*nx + b.vy*ny;
+                        let nx = dx/dist; let ny = dy/dist; let dot = b.vx*nx + b.vy*ny;
                         b.vx -= 1.8*dot*nx; b.vy -= 1.8*dot*ny;
-                        b.vx *= 0.6; b.vy *= 0.6;
-                        b.vx += (Math.random() - 0.5) * 0.5;
+                        b.vx *= 0.6; b.vy *= 0.6; b.vx += (Math.random() - 0.5) * 0.5;
                         let overlap = (b.r + p.r) - dist;
                         b.x += nx * overlap; b.y += ny * overlap;
                     }
                 }
 
-                // 구슬 렌더링
                 ctx.fillStyle = b.color;
                 ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
-                // 구슬 광택 효과 (Art Deco)
                 ctx.fillStyle = 'rgba(255,255,255,0.3)';
                 ctx.beginPath(); ctx.arc(b.x - b.r*0.3, b.y - b.r*0.3, b.r*0.2, 0, Math.PI*2); ctx.fill();
-                
-                ctx.fillStyle = '#000';
-                ctx.font = 'bold 9px sans-serif';
-                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#000'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
                 ctx.fillText(b.num, b.x, b.y);
 
-                // 우승 판정: 깔대기 구멍 통과
+                // 우승 판정
                 if(b.y > 990 && !finished) {
-                    finished = true;
-                    cancelAnimationFrame(animationId);
+                    finished = true; cancelAnimationFrame(animationId);
                     
-                    socket.emit('playGame', { 
-                        roomNum: currentRoom, 
-                        game: 'gacha_result', 
-                        data: { target: currentGameData.gachaTarget, winner: b.num } 
-                    });
-                    
+                    let isWin = (b.num === currentGameData.gachaTarget);
+                    if(isWin) {
+                        let winnings = currentGameData.betAmount * 10;
+                        window.playerCurrency += winnings;
+                        window.updateCurrencyDisplay();
+                        showAlert(`우승 에이전트: [ ${b.num} ]\n축하합니다! ${winnings} G 획득!`);
+                    } else {
+                        showAlert(`우승 에이전트: [ ${b.num} ]\n아쉽게도 낙첨되었습니다.`);
+                    }
+
+                    socket.emit('playGame', { roomNum: currentRoom, game: 'gacha_result', data: { target: currentGameData.gachaTarget, winner: b.num } });
                     setTimeout(() => { renderGameMenu(); }, 2000);
                 }
             }
@@ -876,7 +919,7 @@
         updatePhysics();
     };
 
-// 2. 슬롯 머신 (Canvas 물리엔진 적용 + 수동 정지 버튼 + 레버 애니메이션 분리)
+    // 2. 슬롯 머신 (Canvas 물리엔진 적용 + 수동 정지 버튼 + 레버 애니메이션 분리)
     let slotAnimId;
     window.slotState = 'closed'; // 'idle', 'spinning', 'stopping', 'closed'
     
@@ -994,18 +1037,21 @@
 
     window.playSlot = () => {
         if(window.slotState === 'spinning' || window.slotState === 'stopping') return;
+        
+        // 10G 차감 로직
+        if(window.playerCurrency < 10) return showAlert("재화가 부족합니다. (10G 필요)");
+        window.playerCurrency -= 10;
+        window.updateCurrencyDisplay();
+
         window.slotState = 'spinning';
         
-        // 🚀 애니메이션 분리: 막대는 눕고, 구슬은 찌그러짐 없이 아래로 50px 이동!
         const rod = document.getElementById('slot-lever-rod');
         const ball = document.getElementById('slot-lever-ball');
         if(rod) rod.style.transform = 'rotateX(70deg)';
         if(ball) ball.style.transform = 'translateY(50px)';
 
-        // 데이터 초기화
         currentGameData.slotTargets = null;
         currentGameData.stoppedCount = 0;
-
         reels.forEach(r => { r.speed = 30 + Math.random() * 5; }); 
         
         controlPanel.innerHTML = `
@@ -1022,13 +1068,7 @@
         socket.emit('playGame', { roomNum: currentRoom, game: 'slot' });
     };
 
-    socket.off('slotResult').on('slotResult', (data) => {
-        if(window.slotState === 'closed') return;
-        currentGameData.slotTargets = data.result;
-        currentGameData.slotMsg = data.msg;
-    });
-
-    // 🛑 수동 정지 로직
+    // 🛑 수동 정지 및 결과 배당 로직
     window.stopSlotReel = (r) => {
         if(window.slotState !== 'spinning') return;
         if(reels[r].speed === 0) return; 
@@ -1050,17 +1090,30 @@
 
         currentGameData.stoppedCount++;
 
-        // 3개의 슬롯이 모두 멈췄을 때
+        // 3개의 슬롯이 모두 멈췄을 때 결과 계산
         if(currentGameData.stoppedCount === 3) {
             window.slotState = 'stopping';
+            
+            let t = currentGameData.slotTargets;
+            let isWin = (t[0] === t[1] && t[1] === t[2]);
+            let isJackpot = isWin && t[0] === '7';
+            
+            if (isJackpot) {
+                window.playerCurrency += 1000000;
+                currentGameData.slotMsg = "[ JACKPOT! ]\n기적입니다! 1,000,000 G 획득!";
+            } else if (isWin) {
+                window.playerCurrency += 1000;
+                currentGameData.slotMsg = `[ 당첨! ]\n축하합니다. 1,000 G 획득!`;
+            } else {
+                currentGameData.slotMsg = "[ 꽝 ]\n10 G를 잃었습니다.";
+            }
+            window.updateCurrencyDisplay();
             
             setTimeout(() => {
                 showAlert(currentGameData.slotMsg);
                 window.slotState = 'idle';
-                
                 reels.forEach(reel => { reel.speed = 0.5; }); 
                 
-                // 🚀 당겨졌던 막대와 구슬 모두 원위치
                 const rod = document.getElementById('slot-lever-rod');
                 const ball = document.getElementById('slot-lever-ball');
                 if(rod) rod.style.transform = 'rotateX(0deg)';
@@ -1071,15 +1124,15 @@
         }
     };
 
-    // 3. 룰렛 (Canvas 물리엔진 및 꽉 찬 카지노식 베팅판 UI)
+// 3. 룰렛 (Canvas 물리엔진 및 꽉 찬 카지노식 베팅판 UI)
     window.rouletteAnimId = undefined;
     window.rouletteState = 'closed'; 
     window.wheelAngle = 0;
     window.ballAngleOffset = 0;
-    window.ballRadius = 155; // 캔버스가 커졌으므로 공의 시작 반경 확대
+    window.ballRadius = 155; 
     window.wheelSpeed = 0.01;
     window.ballAngleOffsetSpeed = 0;
-    window.isBoardOpen = false; // 배팅판 토글 상태 관리
+    window.isBoardOpen = false; 
 
     window.renderRoulette = () => {
         updateMainDisplay('Roulette.jpg');
@@ -1093,7 +1146,7 @@
         window.wheelSpeed = 0.01;
         window.isBoardOpen = false;
 
-        // 메인 화면에 룰렛 휠 꽉 차게 배치 (w-[96%])
+        // 메인 화면에 룰렛 휠 꽉 차게 배치
         createGameOverlay(`
             <div class="relative shadow-gold-glow-intense border-[6px] border-obsidian rounded-full overflow-hidden bg-charcoal w-[96%] aspect-square max-w-[360px]">
                 <canvas id="roulette-canvas" width="340" height="340" class="bg-obsidian w-full h-full"></canvas>
@@ -1101,24 +1154,13 @@
             </div>
         `, true);
 
-        // 하단 조작 패널 (배팅판 열기/닫기 토글 버튼 적용)
-        controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-2 my-auto">
-                <div class="text-center mb-1">
-                    <span class="font-display text-gold tracking-widest text-[11px] uppercase bg-black/50 px-3 py-1.5 rounded border border-gold/30 transition-colors duration-300" id="roulette-status">베팅을 선택하십시오</span>
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="btn-toggle-board" onclick="toggleRouletteBoard()" class="btn-deco min-h-[48px] text-xs bg-green-900/40 hover:bg-green-900/80 shadow-[0_0_10px_rgba(20,83,45,0.5)] transition-all">배팅판 열기</button>
-                    <button id="btn-spin-roulette" onclick="playRoulette()" class="btn-deco min-h-[48px] text-xs border-red-500 text-red-500 hover:bg-red-900/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">스핀 (SPIN)</button>
-                </div>
-                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[48px] mt-1 text-obsidian">돌아가기 (RETURN)</button>
-            </div>
-        `;
+        // 하단 조작 패널 호출 (새로 분리된 함수 사용)
+        window.renderRouletteControls();
 
         const canvas = document.getElementById('roulette-canvas');
         const ctx = canvas.getContext('2d');
-        const cx = 170, cy = 170; // 중심점 변경
-        const radius = 140; // 휠 크기 확대
+        const cx = 170, cy = 170; 
+        const radius = 140; 
         const pocketAngle = (Math.PI * 2) / 37;
         const wheelNumbers = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
         const reds = [1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36];
@@ -1126,7 +1168,6 @@
         function drawRoulette() {
             if (window.rouletteState === 'closed') return;
 
-            // 상태에 따른 물리 연산
             if (window.rouletteState === 'spinning') {
                 window.wheelAngle += window.wheelSpeed;
                 window.ballAngleOffset += window.ballAngleOffsetSpeed;
@@ -1136,17 +1177,27 @@
                 if (t > 1) t = 1;
                 let easeOut = 1 - Math.pow(1 - t, 3);
                 
-                // 공이 서서히 휠의 해당 숫자 칸으로 빨려 들어가는 계산 (반경 조정)
                 window.ballAngleOffset = window.startOffset + window.totalTravel * easeOut;
-                window.ballRadius = 155 - 50 * easeOut; // 155에서 시작해 105에 멈춤
+                window.ballRadius = 155 - 50 * easeOut; 
                 window.wheelAngle += window.wheelSpeed * (1 - easeOut); 
                 
+                // 🛑 정지할 때 배당 연산 수행
                 if (t === 1) {
                     window.rouletteState = 'idle';
+                    let resultNum = window.rouletteResultNum; // 소켓에서 받아 저장해둔 결과값
+                    let payoutMultiplier = window.calculateRoulettePayout(currentGameData.rouletteBet, resultNum);
+                    
                     setTimeout(() => {
-                        showAlert(window.rouletteResultMsg);
-                        document.getElementById('btn-spin-roulette').disabled = false;
-                        document.getElementById('btn-spin-roulette').innerText = '스핀 (SPIN)';
+                        if (payoutMultiplier > 0) {
+                            let winnings = currentGameData.betAmount * payoutMultiplier;
+                            window.playerCurrency += winnings;
+                            window.updateCurrencyDisplay();
+                            showAlert(`[ 적중! ]\n결과: ${resultNum}\n${winnings} G 획득! (${payoutMultiplier}배)`);
+                        } else {
+                            showAlert(`[ 낙첨 ]\n결과: ${resultNum}\n베팅금을 잃었습니다.`);
+                        }
+                        const spinBtn = document.getElementById('btn-spin-roulette');
+                        if(spinBtn) { spinBtn.disabled = false; spinBtn.innerText = '스핀 (SPIN)'; }
                     }, 500);
                 }
             } else if (window.rouletteState === 'idle') {
@@ -1156,7 +1207,6 @@
             // --- 렌더링 부 ---
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // 바깥쪽 마호가니 나무 & 금장 테두리
             ctx.beginPath();
             ctx.arc(cx, cy, radius + 20, 0, 2*Math.PI);
             ctx.fillStyle = '#4a2f1d'; 
@@ -1165,7 +1215,6 @@
             ctx.strokeStyle = '#D4AF37'; 
             ctx.stroke();
 
-            // 휠 회전 적용
             ctx.save();
             ctx.translate(cx, cy);
             ctx.rotate(window.wheelAngle);
@@ -1186,12 +1235,11 @@
                 ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)';
                 ctx.stroke(); 
 
-                // 숫자 텍스트 그리기 
                 ctx.save();
                 ctx.rotate(i * pocketAngle);
-                ctx.translate(radius - 18, 0); // 숫자 위치 바깥쪽으로 밀기
+                ctx.translate(radius - 18, 0);
                 ctx.fillStyle = '#FFF';
-                ctx.font = 'bold 11px "Josefin Sans", sans-serif'; // 글자 크기 확대
+                ctx.font = 'bold 11px "Josefin Sans", sans-serif'; 
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.rotate(Math.PI / 2); 
@@ -1199,7 +1247,6 @@
                 ctx.restore();
             }
             
-            // 중앙 금속 장식
             ctx.beginPath();
             ctx.arc(0, 0, radius - 45, 0, 2*Math.PI);
             ctx.fillStyle = '#D4AF37';
@@ -1226,13 +1273,12 @@
             }
             ctx.restore();
 
-            // 쇠구슬 그리기
             let absoluteBallAngle = window.wheelAngle + window.ballAngleOffset;
             let bx = cx + Math.cos(absoluteBallAngle) * window.ballRadius;
             let by = cy + Math.sin(absoluteBallAngle) * window.ballRadius;
             
             ctx.beginPath();
-            ctx.arc(bx, by, 6, 0, 2*Math.PI); // 구슬 크기 확대
+            ctx.arc(bx, by, 6, 0, 2*Math.PI); 
             ctx.fillStyle = '#FFFFFF';
             ctx.shadowColor = 'rgba(0,0,0,0.9)';
             ctx.shadowBlur = 6;
@@ -1246,16 +1292,29 @@
         drawRoulette();
     };
 
-    // 📱 [디테일] 배팅판 토글 컨트롤러
-    window.toggleRouletteBoard = () => {
-        if (window.isBoardOpen) {
-            closeRouletteBoard();
-        } else {
-            openRouletteBoard();
-        }
+    // 📱 룰렛 하단 패널 분리 렌더링
+    window.renderRouletteControls = () => {
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-2 my-auto">
+                <div class="text-center mb-1">
+                    <span class="font-display ${currentGameData.rouletteBet ? 'text-green-400 border-green-400' : 'text-gold border-gold/30'} tracking-widest text-[11px] uppercase bg-black/50 px-3 py-1.5 rounded border transition-colors duration-300" id="roulette-status">
+                        ${currentGameData.rouletteBet ? `베팅 완료: [ ${currentGameData.rouletteBet} ]` : `베팅을 선택하십시오`}
+                    </span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="btn-toggle-board" onclick="toggleRouletteBoard()" class="btn-deco min-h-[48px] text-xs bg-green-900/40 hover:bg-green-900/80 shadow-[0_0_10px_rgba(20,83,45,0.5)] transition-all">배팅판 열기</button>
+                    <button id="btn-spin-roulette" onclick="playRoulette()" class="btn-deco min-h-[48px] text-xs border-red-500 text-red-500 hover:bg-red-900/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]">스핀 (SPIN)</button>
+                </div>
+                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[48px] mt-1 text-obsidian">돌아가기 (RETURN)</button>
+            </div>
+        `;
     };
 
-    // 📱 꽉 찬 녹색 카지노 매트 배팅판 UI 열기
+    window.toggleRouletteBoard = () => {
+        if (window.isBoardOpen) closeRouletteBoard();
+        else openRouletteBoard();
+    };
+
     window.openRouletteBoard = () => {
         window.isBoardOpen = true;
         const btn = document.getElementById('btn-toggle-board');
@@ -1267,7 +1326,6 @@
 
         const displayContainer = document.getElementById('game-item-overlay') || mainImage.parentElement;
         
-        // 닫기 버튼 공간을 삭제하고, 보드 높이를 95%로 크게 꽉 채움
         let boardHTML = `
             <div id="roulette-board-overlay" class="absolute inset-0 z-40 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-3 animate-fade-in">
                 <div class="w-full h-[95%] max-w-[300px] bg-green-900 p-3 border-2 border-gold rounded shadow-gold-glow-intense flex flex-col">
@@ -1331,35 +1389,53 @@
     window.selectRouletteBet = (bet) => {
         currentGameData.rouletteBet = bet;
         const statusEl = document.getElementById('roulette-status');
-        statusEl.innerText = `베팅 완료: [ ${bet} ]`;
+        if(statusEl) statusEl.innerText = `베팅 완료: [ ${bet} ]`;
         
-        statusEl.classList.remove('text-gold', 'border-gold/30');
-        statusEl.classList.add('text-green-400', 'border-green-400', 'bg-green-900/50');
-        setTimeout(() => {
-            statusEl.classList.add('text-gold', 'border-gold/30');
-            statusEl.classList.remove('text-green-400', 'border-green-400', 'bg-green-900/50');
-        }, 600);
+        if(statusEl) {
+            statusEl.classList.remove('text-gold', 'border-gold/30');
+            statusEl.classList.add('text-green-400', 'border-green-400', 'bg-green-900/50');
+            setTimeout(() => {
+                statusEl.classList.add('text-gold', 'border-gold/30');
+                statusEl.classList.remove('text-green-400', 'border-green-400', 'bg-green-900/50');
+            }, 600);
+        }
         
         closeRouletteBoard();
+        window.renderRouletteControls(); // 상태 업데이트 렌더링
     };
 
     window.playRoulette = () => {
         if(!currentGameData.rouletteBet) {
-            showAlert("먼저 배팅판을 열어 베팅을 선택하십시오.");
+            showAlert("먼저 배팅판을 열어 베팅 옵션을 선택하십시오.");
             return;
         }
         if(window.rouletteState === 'spinning' || window.rouletteState === 'stopping') return;
 
-        // 혹시 배팅판이 열려있다면 회전과 동시에 닫기
         if(window.isBoardOpen) closeRouletteBoard();
 
+        // 베팅 패널 호출
+        window.renderBettingPanel((betAmount) => {
+            window.playerCurrency -= betAmount;
+            window.updateCurrencyDisplay();
+            currentGameData.betAmount = betAmount;
+            window.executeRouletteSpin();
+        }, () => {
+            window.renderRouletteControls();
+        });
+    };
+
+    window.executeRouletteSpin = () => {
         window.rouletteState = 'spinning';
-        document.getElementById('btn-spin-roulette').disabled = true;
-        document.getElementById('btn-spin-roulette').innerText = '회전 중...';
+        window.renderRouletteControls(); // 원상복구 후 텍스트 변경
+        
+        setTimeout(() => {
+            const btn = document.getElementById('btn-spin-roulette');
+            if(btn) { btn.disabled = true; btn.innerText = '회전 중...'; }
+        }, 50);
 
         window.wheelSpeed = 0.05;
         window.ballAngleOffsetSpeed = 0.3; 
-        window.ballRadius = 158; // 스핀 시 휠의 테두리 바깥쪽 궤도로 돌기 시작
+        window.ballRadius = 158; 
 
         socket.emit('playGame', { roomNum: currentRoom, game: 'roulette', data: currentGameData.rouletteBet });
     };
@@ -1368,7 +1444,7 @@
         if(window.rouletteState === 'closed') return;
         
         window.rouletteState = 'stopping';
-        window.rouletteResultMsg = data.msg;
+        window.rouletteResultNum = data.resultNum; // 배당 계산을 위해 저장
         
         const wheelNumbers = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26];
         const targetIndex = wheelNumbers.indexOf(data.resultNum);
