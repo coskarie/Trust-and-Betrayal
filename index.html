@@ -626,18 +626,27 @@
     // 🎲 6종 카지노 게임 구현부
     // ==========================================
 
-    // 1. 구슬뽑기
+    // 1. 구슬뽑기 (이미지 없이 Canvas 물리엔진으로 구현)
     window.renderGacha = () => {
-        updateMainDisplay('Gacha.jpg');
+        // 배경 이미지를 숨기고 검은 바탕으로 처리
+        mainImage.style.display = 'none'; 
         mainImageText.parentElement.style.display = 'none';
 
-        // 5x2 구슬 나열
-        let marblesHTML = '<div class="grid grid-cols-5 gap-3 w-full max-w-[250px]">';
+        // 5x2 구슬 선택 UI 및 애니메이션용 Canvas 캔버스(처음엔 숨김) 세팅
+        let marblesHTML = `
+            <div class="flex flex-col items-center gap-4 w-full" id="gacha-selection-ui">
+                <div class="font-display text-gold tracking-widest text-xs">우승 구슬을 예측하세요</div>
+                <div class="grid grid-cols-5 gap-3 w-full max-w-[250px]">
+        `;
         for(let i=1; i<=10; i++) {
-            marblesHTML += `<button onclick="selectGachaMarble(${i})" class="game-item-btn aspect-square rounded-full border-2 border-gold text-gold font-bold text-lg flex justify-center items-center">${i}</button>`;
+            marblesHTML += `<button onclick="selectGachaMarble(${i})" class="game-item-btn aspect-square rounded-full border-2 border-gold text-gold font-bold text-lg flex justify-center items-center shadow-gold-glow">${i}</button>`;
         }
-        marblesHTML += '</div>';
-        createGameOverlay(marblesHTML);
+        marblesHTML += `
+                </div>
+            </div>
+            <canvas id="gacha-canvas" width="300" height="400" class="hidden bg-obsidian border border-gold/50 rounded-lg shadow-gold-glow"></canvas>
+        `;
+        createGameOverlay(marblesHTML, true);
 
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto text-center">
@@ -647,13 +656,131 @@
             </div>
         `;
     };
+
     window.selectGachaMarble = (num) => {
         currentGameData.gachaTarget = num;
         document.getElementById('gacha-status').innerText = `선택된 구슬: [ ${num} ]`;
     };
+
     window.playGacha = () => {
         if(!currentGameData.gachaTarget) { showAlert("먼저 메인 화면에서 구슬을 선택하세요."); return; }
-        socket.emit('playGame', { roomNum: currentRoom, game: 'gacha', data: currentGameData.gachaTarget });
+
+        // UI 전환: 번호 선택창 숨기고 핀볼 캔버스 노출
+        document.getElementById('gacha-selection-ui').style.display = 'none';
+        const canvas = document.getElementById('gacha-canvas');
+        canvas.classList.remove('hidden');
+        canvas.classList.add('block');
+
+        // 하단 버튼 일시 숨김 (게임 진행 중 조작 방지)
+        controlPanel.innerHTML = `
+            <div class="w-full flex justify-center items-center h-full">
+                <span class="font-display text-gold tracking-[0.2em] animate-pulse">결과 추첨 중...</span>
+            </div>
+        `;
+
+        // --- 핀볼(사다리) 물리 엔진 로직 ---
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // 장애물(핀) 생성: 삼각형 형태로 지그재그 배치
+        const pegs = [];
+        for(let row=0; row<9; row++) {
+            let cols = row % 2 === 0 ? 6 : 5;
+            for(let c=0; c<cols; c++) {
+                pegs.push({
+                    x: 25 + c * 50 + (row % 2 === 0 ? 0 : 25),
+                    y: 60 + row * 35,
+                    r: 4
+                });
+            }
+        }
+
+        // 구슬 10개 생성
+        const balls = [];
+        const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#ec4899', '#f97316', '#14b8a6', '#8b5cf6', '#f43f5e'];
+        for(let i=1; i<=10; i++) {
+            balls.push({
+                num: i,
+                x: 15 + i * 27, // 나란히 배치
+                y: 10 + Math.random() * 20, // 떨어지는 시작 높이 살짝 다르게
+                vx: (Math.random() - 0.5) * 2, // 좌우 초기 속도
+                vy: 0,
+                r: 10,
+                color: colors[i-1]
+            });
+        }
+
+        let animationId;
+        let finished = false;
+
+        function updatePhysics() {
+            if(finished) return;
+            ctx.clearRect(0, 0, width, height);
+
+            // 핀 그리기
+            ctx.fillStyle = '#D4AF37'; // 골드 색상
+            for(let p of pegs) {
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+            }
+
+            // 구슬 이동 및 충돌 계산
+            for(let b of balls) {
+                b.vy += 0.15; // 중력 적용
+                b.x += b.vx;
+                b.y += b.vy;
+
+                // 양쪽 벽 충돌
+                if(b.x < b.r) { b.x = b.r; b.vx *= -0.6; }
+                if(b.x > width - b.r) { b.x = width - b.r; b.vx *= -0.6; }
+
+                // 핀과 구슬의 충돌 (원형 충돌 알고리즘)
+                for(let p of pegs) {
+                    let dx = b.x - p.x;
+                    let dy = b.y - p.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    if(dist < b.r + p.r) { // 부딪혔다면
+                        let nx = dx/dist; let ny = dy/dist;
+                        let dot = b.vx*nx + b.vy*ny;
+                        b.vx -= 2*dot*nx;
+                        b.vy -= 2*dot*ny;
+                        b.vx *= 0.5; b.vy *= 0.5; // 통통 튀는 탄성
+                        b.vx += (Math.random() - 0.5); // 멈춤 방지용 무작위 바운스
+                        
+                        let overlap = (b.r + p.r) - dist;
+                        b.x += nx * overlap;
+                        b.y += ny * overlap;
+                    }
+                }
+
+                // 구슬 그리기
+                ctx.fillStyle = b.color;
+                ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(b.num, b.x, b.y);
+
+                // 결승선(바닥) 통과 체크
+                if(b.y > height + b.r && !finished) {
+                    finished = true;
+                    cancelAnimationFrame(animationId);
+                    
+                    // 서버로 '실제 들어온 결과' 전송
+                    socket.emit('playGame', { 
+                        roomNum: currentRoom, 
+                        game: 'gacha_result', 
+                        data: { target: currentGameData.gachaTarget, winner: b.num } 
+                    });
+                    
+                    // 1.5초 뒤 메인 메뉴로 복구
+                    setTimeout(() => { renderGameMenu(); }, 1500);
+                    return;
+                }
+            }
+            if(!finished) animationId = requestAnimationFrame(updatePhysics);
+        }
+        updatePhysics(); // 애니메이션 루프 시작
     };
 
     // 2. 슬롯 머신

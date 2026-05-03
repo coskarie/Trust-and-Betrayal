@@ -115,13 +115,12 @@ io.on('connection', (socket) => {
         let resultMessage = "";
 
         switch(game) {
-            case 'gacha':
-                // data 에는 유저가 누른 1~10 구슬 번호가 들어옴
-                const resultMarble = Math.floor(Math.random() * 10) + 1;
-                if (data === resultMarble) {
-                    resultMessage = `[구슬뽑기] 정답입니다! 결과는 ${resultMarble}번 구슬이었습니다.`;
+            case 'gacha_result':
+                // 웹(Canvas)에서 계산되어 1등으로 들어온 구슬 번호(winner)를 받음
+                if (data.target === data.winner) {
+                    resultMessage = `[구슬뽑기] 정답입니다! ${data.winner}번 구슬이 1등으로 들어왔습니다!`;
                 } else {
-                    resultMessage = `[구슬뽑기] 아쉽습니다. 결과는 ${resultMarble}번 구슬이었습니다.\n(선택: ${data})`;
+                    resultMessage = `[구슬뽑기] 아쉽습니다. 1등 구슬은 ${data.winner}번 이었습니다.\n(당신의 선택: ${data.target})`;
                 }
                 break;
             case 'slot':
