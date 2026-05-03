@@ -124,10 +124,34 @@ io.on('connection', (socket) => {
                 }
                 break;
             case 'slot':
-                const slots = [Math.floor(Math.random() * 7)+1, Math.floor(Math.random() * 7)+1, Math.floor(Math.random() * 7)+1];
-                resultMessage = `[슬롯머신] 결과: [ ${slots[0]} | ${slots[1]} | ${slots[2]} ]`;
-                if(slots[0] === slots[1] && slots[1] === slots[2]) resultMessage += "\nJACKPOT!!";
-                break;
+                const slotSymbols = ['1','2','3','4','5','6','7','8','9','♠','♤','♣','♧','♦','♢','♥','♡'];
+                const getRandomSymbol = () => slotSymbols[Math.floor(Math.random() * slotSymbols.length)];
+
+                let s1 = getRandomSymbol();
+                let s2 = getRandomSymbol();
+                let s3 = getRandomSymbol();
+
+                // 🔥 7 7 7 극악 난이도 방어 로직 🔥
+                // 만약 기적적으로 앞의 두 개가 7, 7이 나왔다면?
+                if (s1 === '7' && s2 === '7') {
+                    // 3번째 릴에서 7이 나올 뻔 했어도, 95% 확률로 다른 문양(스페이드)으로 비틀어버림 (일명 억까 로직)
+                    if (s3 === '7') {
+                        if (Math.random() < 0.95) { 
+                            s3 = '♠'; 
+                        }
+                    }
+                }
+
+                let msg = `[슬롯머신] 결과: [ ${s1} | ${s2} | ${s3} ]`;
+                if (s1 === s2 && s2 === s3) {
+                    msg += (s1 === '7') ? "\n🎉 JACKPOT! 777 당첨! 🎉" : "\n✨ 당첨입니다! ✨";
+                } else {
+                    msg += "\n꽝입니다.";
+                }
+
+                // 슬롯머신은 결과를 전용 이벤트로 보냅니다.
+                socket.emit('slotResult', { result: [s1, s2, s3], msg: msg });
+                return; // 기존 gameResult emit을 타지 않도록 return
             case 'roulette':
                 const rouletteResult = Math.floor(Math.random() * 37); // 0~36
                 resultMessage = `[룰렛] 휠이 멈췄습니다. 결과는 [ ${rouletteResult} ]!`;
