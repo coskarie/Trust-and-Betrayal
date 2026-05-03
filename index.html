@@ -552,7 +552,7 @@
 
     // --- 4. 조작화면 (동적 UI 렌더링 로직) ---
     
-    // 메인 이미지 변경 함수 (오버레이 및 메신저 초기화 기능 포함)
+    // 메인 이미지 변경 함수 (오버레이 및 애니메이션 강제 종료 기능 포함)
     function updateMainDisplay(filename) {
         mainImage.src = filename;
         mainImage.style.display = 'block'; 
@@ -560,6 +560,12 @@
         
         // 숨겨뒀던 파일명 명패 다시 보이게 복구
         mainImageText.parentElement.style.display = 'flex';
+
+        // 🛑 슬롯머신 등 진행 중이던 애니메이션 끄기 🛑
+        if (typeof slotAnimId !== 'undefined') {
+            cancelAnimationFrame(slotAnimId);
+        }
+        window.slotState = 'closed';
 
         // 게임 화면 등에서 만들었던 요소 지우기
         const existingOverlay = document.getElementById('black-overlay');
@@ -826,16 +832,15 @@
         updatePhysics();
     };
 
-    // 2. 슬롯 머신 (Canvas 물리엔진 적용)
+    // 2. 슬롯 머신 (Canvas 물리엔진 적용 + 수동 정지 버튼 + 레버 애니메이션)
     let slotAnimId;
     window.slotState = 'closed'; // 'idle', 'spinning', 'stopping', 'closed'
     
     // 심볼 데이터 세팅
     const SLOT_SYMBOLS = ['1','2','3','4','5','6','7','8','9','♠','♤','♣','♧','♦','♢','♥','♡'];
-    const SYMBOL_H = 40; // 심볼 1개의 높이
-    const TOTAL_L = SLOT_SYMBOLS.length * SYMBOL_H; // 드럼 전체 길이
+    const SYMBOL_H = 40; 
+    const TOTAL_L = SLOT_SYMBOLS.length * SYMBOL_H;
 
-    // 3개의 슬롯 릴 상태 (속도, y좌표 등)
     let reels = [];
 
     window.renderSlot = () => {
@@ -843,11 +848,10 @@
         mainImage.style.display = 'none'; 
         mainImageText.parentElement.style.display = 'none';
 
-        // 이전 애니메이션 강제 종료
         window.slotState = 'closed';
         cancelAnimationFrame(slotAnimId);
 
-        // 릴 초기화 (speed 0.5로 대기 상태의 천천히 도는 연출)
+        // 릴 초기화 (대기 상태의 천천히 도는 연출)
         reels = [
             { y: 0, speed: 0.5, target: null },
             { y: 40, speed: 0.5, target: null },
@@ -855,26 +859,41 @@
         ];
         window.slotState = 'idle';
 
-        // 1:2 비율의 슬롯을 3개 담을 캔버스 생성 (총 크기: 가로 240, 세로 160)
-        // 슬롯 각각의 크기는 가로 60, 세로 120 (정확히 1:2 비율)
+        // 캔버스와 우측 레버 나란히 배치 (3D 원근감을 위한 perspective 추가)
         createGameOverlay(`
-            <div class="relative shadow-gold-glow-intense border-2 border-gold rounded overflow-hidden p-4 bg-charcoal">
-                <canvas id="slot-canvas" width="220" height="120" class="bg-obsidian border border-gold/50 shadow-inner"></canvas>
-                <div class="absolute inset-0 pointer-events-none rounded" style="background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 15%, transparent 85%, rgba(0,0,0,0.8) 100%);"></div>
+            <div class="flex items-end gap-3" style="perspective: 400px;">
+                <div class="relative shadow-gold-glow-intense border-2 border-gold rounded overflow-hidden p-4 bg-charcoal">
+                    <canvas id="slot-canvas" width="220" height="120" class="bg-obsidian border border-gold/50 shadow-inner"></canvas>
+                    <div class="absolute inset-0 pointer-events-none rounded" style="background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, transparent 15%, transparent 85%, rgba(0,0,0,0.8) 100%);"></div>
+                </div>
+                
+                <div class="relative w-10 h-[140px] flex flex-col items-center justify-end pb-3">
+                    <div id="slot-lever" class="w-3 h-[75px] bg-gradient-to-r from-gray-400 via-gray-200 to-gray-500 rounded-t origin-bottom transition-transform duration-300 ease-in-out relative z-20">
+                        <div class="absolute -top-7 -left-3.5 w-10 h-10 bg-red-600 rounded-full border border-red-800 shadow-[inset_-3px_-3px_8px_rgba(0,0,0,0.6),_0_5px_15px_rgba(220,38,38,0.4)] flex justify-center items-center">
+                            <div class="w-3 h-3 bg-white/40 rounded-full absolute top-1.5 left-2 blur-[1px]"></div>
+                        </div>
+                    </div>
+                    <div class="w-8 h-12 bg-gradient-to-br from-gray-800 to-obsidian border border-gray-700 rounded-sm mt-[-5px] z-10 shadow-lg relative">
+                        <div class="absolute top-2 left-1/2 -translate-x-1/2 w-1.5 h-8 bg-black rounded-full shadow-inner"></div>
+                    </div>
+                </div>
             </div>
         `, true);
 
-        controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-3 my-auto">
-                <button id="btn-spin-slot" onclick="playSlot()" class="btn-deco min-h-[56px] text-xs">머신 작동 (SPIN)</button>
-                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2 text-obsidian">돌아가기</button>
-            </div>
-        `;
+        // 조작화면 초기화 함수 (렌더링 재사용을 위해 분리)
+        window.renderSlotControls = () => {
+            controlPanel.innerHTML = `
+                <div class="w-full flex flex-col gap-3 my-auto">
+                    <button id="btn-spin-slot" onclick="playSlot()" class="btn-deco min-h-[56px] text-xs shadow-[0_0_10px_rgba(212,175,55,0.2)]">머신 작동 (SPIN)</button>
+                    <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2 text-obsidian">돌아가기 (RETURN)</button>
+                </div>
+            `;
+        };
+        renderSlotControls();
 
         const canvas = document.getElementById('slot-canvas');
         const ctx = canvas.getContext('2d');
 
-        // 슬롯머신 그리기 루프
         function drawSlot() {
             if (window.slotState === 'closed') return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -885,20 +904,19 @@
             for(let r=0; r<3; r++) {
                 let rx = startX + r*(slotW + gap);
 
-                // 릴 뒷배경
                 ctx.fillStyle = '#0a0a0a';
                 ctx.fillRect(rx, 0, slotW, slotH);
 
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(rx, 0, slotW, slotH);
-                ctx.clip(); // 슬롯 칸 밖으로 심볼이 삐져나가지 않게 마스킹
+                ctx.clip(); 
 
                 let reel = reels[r];
-                reel.y += reel.speed; // 위에서 아래로 떨어지는 로직
+                reel.y += reel.speed; 
                 if(reel.y >= TOTAL_L) reel.y -= TOTAL_L;
 
-                // 속도가 빠를 때 모션 블러(잔상) 효과
+                // 속도에 따른 잔상(블러) 효과 처리
                 if (reel.speed > 5) ctx.filter = 'blur(1.5px)';
                 else ctx.filter = 'none';
 
@@ -906,24 +924,21 @@
                 ctx.textBaseline = 'middle';
                 ctx.font = 'bold 28px "Marcellus", serif';
 
-                // 심볼 나열
                 for(let i=0; i<SLOT_SYMBOLS.length; i++) {
                     let symY = (i * SYMBOL_H) + reel.y;
                     let drawY = symY;
-                    if(drawY > TOTAL_L - SYMBOL_H) drawY -= TOTAL_L; // 끝에 도달하면 위로 순간이동 (무한 반복)
+                    if(drawY > TOTAL_L - SYMBOL_H) drawY -= TOTAL_L; 
 
-                    // 화면에 보이는 영역만 그리기
                     if(drawY > -SYMBOL_H && drawY < slotH + SYMBOL_H) {
                         let sym = SLOT_SYMBOLS[i];
-                        if(['♥','♡','♦','♢','7'].includes(sym)) ctx.fillStyle = '#ef4444'; // 레드는 붉은색
-                        else ctx.fillStyle = '#D4AF37'; // 나머지는 골드
+                        if(['♥','♡','♦','♢','7'].includes(sym)) ctx.fillStyle = '#ef4444'; 
+                        else ctx.fillStyle = '#D4AF37'; 
 
                         ctx.fillText(sym, rx + slotW/2, drawY + SYMBOL_H/2);
                     }
                 }
                 ctx.restore();
 
-                // 슬롯 개별 테두리
                 ctx.strokeStyle = 'rgba(212, 175, 55, 0.4)';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(rx, 0, slotW, slotH);
@@ -938,54 +953,84 @@
         if(window.slotState === 'spinning' || window.slotState === 'stopping') return;
         window.slotState = 'spinning';
         
-        // 작동 시 버튼 비활성화
-        document.getElementById('btn-spin-slot').disabled = true;
-        document.getElementById('btn-spin-slot').innerText = '회전 중...';
+        // 🚀 레버 당기는 애니메이션 (3D 좌표계 활용)
+        const lever = document.getElementById('slot-lever');
+        if(lever) lever.style.transform = 'rotateX(70deg)';
 
-        // 3개의 릴 속도를 엄청나게 올림
-        reels.forEach(r => { r.speed = 25 + Math.random() * 5; }); 
+        // 데이터 초기화
+        currentGameData.slotTargets = null;
+        currentGameData.stoppedCount = 0;
+
+        // 3개의 릴 각각 미세하게 다른 빠른 속도 부여
+        reels.forEach(r => { r.speed = 30 + Math.random() * 5; }); 
         
+        // 🔲 조작화면 변경: 네모 버튼 3개 배치
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto items-center">
+                <p class="font-display text-gold text-[10px] tracking-widest uppercase mb-1 animate-pulse">Press to Stop</p>
+                <div class="flex justify-center gap-5 w-full">
+                    <button id="btn-stop-0" onclick="stopSlotReel(0)" class="btn-deco w-[60px] h-[60px] bg-charcoal border border-red-900 hover:bg-red-900/50 hover:border-red-500 transition-colors shadow-[0_0_10px_rgba(239,68,68,0.2)] rounded-sm"></button>
+                    <button id="btn-stop-1" onclick="stopSlotReel(1)" class="btn-deco w-[60px] h-[60px] bg-charcoal border border-red-900 hover:bg-red-900/50 hover:border-red-500 transition-colors shadow-[0_0_10px_rgba(239,68,68,0.2)] rounded-sm"></button>
+                    <button id="btn-stop-2" onclick="stopSlotReel(2)" class="btn-deco w-[60px] h-[60px] bg-charcoal border border-red-900 hover:bg-red-900/50 hover:border-red-500 transition-colors shadow-[0_0_10px_rgba(239,68,68,0.2)] rounded-sm"></button>
+                </div>
+            </div>
+        `;
+
+        // 서버로 게임 시작 신호 발송
         socket.emit('playGame', { roomNum: currentRoom, game: 'slot' });
     };
 
-    // 서버에서 슬롯머신 결과를 받았을 때의 정지 로직
-    socket.on('slotResult', (data) => {
+    // 서버의 랜덤 판정 결과 수신 대기
+    socket.off('slotResult').on('slotResult', (data) => {
         if(window.slotState === 'closed') return;
-        window.slotState = 'stopping';
-        const targets = data.result; // 예: ['7', '♠', '♡']
-
-        for(let r=0; r<3; r++) {
-            // 1번째 릴: 1초 뒤 / 2번째 릴: 2초 뒤 / 3번째 릴: 3초 뒤 정지
-            setTimeout(() => {
-                let targetIdx = SLOT_SYMBOLS.indexOf(targets[r]);
-                
-                // 타겟 심볼이 슬롯(높이 120)의 정중앙(y=40)에 오도록 좌표 계산
-                let targetY = (SYMBOL_H - (targetIdx * SYMBOL_H) % TOTAL_L + TOTAL_L) % TOTAL_L;
-                
-                reels[r].speed = 0; // 정지
-                reels[r].y = targetY; // 좌표 강제 스냅
-
-                // 마지막 릴 정지 시 결과 출력 및 초기화
-                if(r === 2) { 
-                    setTimeout(() => {
-                        showAlert(data.msg);
-                        window.slotState = 'idle';
-                        // 다시 천천히 돌기 시작 (선택사항, 원치 않으시면 속도를 0으로 유지)
-                        reels.forEach(r => { r.speed = 0.5; });
-                        document.getElementById('btn-spin-slot').disabled = false;
-                        document.getElementById('btn-spin-slot').innerText = '머신 작동 (SPIN)';
-                    }, 800);
-                }
-            }, (r+1) * 1000); 
-        }
+        currentGameData.slotTargets = data.result;
+        currentGameData.slotMsg = data.msg;
     });
 
-    // 메인 화면을 다른 화면으로 덮을 때 캔버스 애니메이션 끄기
-    const originalUpdateMainDisplay = updateMainDisplay;
-    updateMainDisplay = function(filename) {
-        window.slotState = 'closed';
-        cancelAnimationFrame(slotAnimId);
-        originalUpdateMainDisplay(filename);
+    // 🛑 수동 슬롯 정지 로직 (유저가 각 네모 버튼을 클릭할 때 실행)
+    window.stopSlotReel = (r) => {
+        if(window.slotState !== 'spinning') return;
+        if(reels[r].speed === 0) return; // 이미 이 칸은 멈춤
+        if(!currentGameData.slotTargets) return; // 서버 통신 지연 시 대기
+
+        // 타겟 심볼의 정확한 y좌표 스냅 계산 (철컥! 하고 중앙에 맞추기 위함)
+        let targetIdx = SLOT_SYMBOLS.indexOf(currentGameData.slotTargets[r]);
+        let targetY = (SYMBOL_H - (targetIdx * SYMBOL_H) % TOTAL_L + TOTAL_L) % TOTAL_L;
+        
+        reels[r].speed = 0; 
+        reels[r].y = targetY; 
+
+        // 버튼 상태 변경 (불이 꺼지고 잠기는 연출)
+        const btn = document.getElementById(`btn-stop-${r}`);
+        if(btn) {
+            btn.disabled = true;
+            btn.style.backgroundColor = 'rgba(212, 175, 55, 0.2)';
+            btn.style.borderColor = '#D4AF37';
+            btn.style.boxShadow = 'none';
+        }
+
+        currentGameData.stoppedCount++;
+
+        // 3개의 슬롯이 모두 멈췄을 때
+        if(currentGameData.stoppedCount === 3) {
+            window.slotState = 'stopping';
+            
+            // 0.5초 여운을 주고 결과 출력
+            setTimeout(() => {
+                showAlert(currentGameData.slotMsg);
+                window.slotState = 'idle';
+                
+                // 다시 천천히 돌기 시작
+                reels.forEach(reel => { reel.speed = 0.5; }); 
+                
+                // 당겨졌던 레버 원위치 복구
+                const lever = document.getElementById('slot-lever');
+                if(lever) lever.style.transform = 'rotateX(0deg)';
+
+                // SPIN 버튼으로 원상복구
+                renderSlotControls();
+            }, 500);
+        }
     };
 
     // 3. 룰렛
