@@ -2222,6 +2222,7 @@
         return Math.min(1, score + e.rank * 0.05);
     };
 
+    // [수정 1] 봇의 판단 로직: amount를 목표 총 베팅금으로 반환하도록 수정
     window.scsBotDecide = (player, toCall, pot, street) => {
         const str = window.scsHandStrength(player.cards);
         const bluff = Math.random() < 0.12;
@@ -2231,14 +2232,18 @@
         if (toCall === 0) {
             if (adj > 0.55) {
                 const raiseAmt = Math.min(player.chips, Math.floor(pot * (0.3 + adj * 0.4)));
-                return { action: 'raise', amount: Math.max(SCS_MIN_RAISE, Math.min(raiseAmt, player.chips)) };
+                const additional = Math.max(SCS_MIN_RAISE, Math.min(raiseAmt, player.chips));
+                // FIX: player.bet을 더하여 총 베팅금으로 반환
+                return { action: 'raise', amount: player.bet + additional };
             }
             return { action: 'check' };
         } else {
             if (adj < 0.25) return { action: 'fold' };
             if (adj > 0.70 && player.chips > toCall + SCS_MIN_RAISE) {
                 const extra = Math.floor(toCall * (0.5 + adj));
-                return { action: 'raise', amount: Math.min(player.chips, toCall + Math.max(SCS_MIN_RAISE, extra)) };
+                const additional = Math.min(player.chips, toCall + Math.max(SCS_MIN_RAISE, extra));
+                // FIX: player.bet을 더하여 총 베팅금으로 반환
+                return { action: 'raise', amount: player.bet + additional };
             }
             if (player.chips <= toCall) return { action: 'call', amount: player.chips };
             return { action: 'call', amount: toCall };
@@ -2557,9 +2562,10 @@
                 break;
             }
             case 'raise': {
-                const raiseAmt = Math.min(amount, p.chips);
-                const extra = raiseAmt - p.bet;
-                const netAdd = Math.min(extra, p.chips);
+                // FIX: amount(총 목표 베팅금)에서 기존 베팅금을 빼서 순수 추가금만 계산
+                const desiredExtra = amount - p.bet;
+                // 최소 0 이상, 최대 남은 칩만큼만 뺄 수 있도록 강제 방어
+                const netAdd = Math.max(0, Math.min(desiredExtra, p.chips));
                 
                 if (pid === 0) {
                     window.playerCurrency -= netAdd;
