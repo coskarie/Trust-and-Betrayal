@@ -1486,16 +1486,28 @@
         window.graphMultiplier = 1.00;
         window.graphHistory = [1.00];
 
-        // 캔버스 UI 배치
+        // 캔버스 UI 배치 (여백 10px로 확장, CRASH RISK와 수익률 하단 분리)
+        // 기본 부모인 p-4(16px 여백)에서 좌우로 6px씩 넓혀서 정확히 10px 여백을 만듭니다.
         createGameOverlay(`
-            <div class="relative shadow-gold-glow border-[4px] border-obsidian rounded-md overflow-hidden bg-charcoal w-[96%] aspect-video max-w-[360px] flex flex-col">
-                <div class="absolute top-2 left-3 z-40">
-                    <span id="graph-multiplier-display" class="font-mono text-2xl font-bold text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]">1.00x</span>
+            <div class="flex flex-col items-center w-[calc(100%+12px)] max-w-[380px] -mx-[6px] gap-2">
+                
+                <div class="relative shadow-gold-glow border-[4px] border-obsidian rounded-md overflow-hidden bg-charcoal w-full aspect-video flex flex-col">
+                    <div class="absolute top-2 left-3 z-40">
+                        <span id="graph-multiplier-display" class="font-mono text-2xl font-bold text-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.8)]">1.00x</span>
+                    </div>
+                    <canvas id="graph-canvas" width="340" height="190" class="bg-obsidian w-full h-full"></canvas>
                 </div>
-                <div class="absolute top-2 right-3 z-40">
-                    <span id="graph-crash-chance" class="font-display text-[10px] text-red-500 tracking-widest uppercase bg-black/50 px-2 py-1 rounded">CRASH RISK: 1%</span>
+                
+                <div class="w-full flex justify-between items-center bg-obsidian/95 border border-gold/40 rounded-sm px-4 py-2 shadow-gold-glow">
+                    <div class="flex flex-col">
+                        <span class="font-display text-[9px] text-gold/70 tracking-widest uppercase mb-0.5">Expected Payout (예상 수익)</span>
+                        <span id="graph-profit-display" class="font-mono text-base font-bold text-gold">0 G</span>
+                    </div>
+                    <div class="flex flex-col items-end justify-center">
+                        <span id="graph-crash-chance" class="font-display text-xs font-bold text-red-500 tracking-widest uppercase">CRASH RISK: 1%</span>
+                    </div>
                 </div>
-                <canvas id="graph-canvas" width="340" height="190" class="bg-obsidian w-full h-full"></canvas>
+
             </div>
         `, true);
 
@@ -1542,7 +1554,19 @@
             if (current > window.playerCurrency) current = window.playerCurrency;
             
             input.value = current;
+            
+            // 베팅금 입력 시 UI의 예상 수익란을 바로 업데이트
+            const profitDisplay = document.getElementById('graph-profit-display');
+            if(profitDisplay && window.graphState === 'idle') {
+                profitDisplay.innerText = current + ' G';
+            }
         };
+        
+        // 초기 진입 시 수익란 렌더링
+        setTimeout(() => {
+            const profitDisplay = document.getElementById('graph-profit-display');
+            if(profitDisplay) profitDisplay.innerText = document.getElementById('graph-bet-input').value + ' G';
+        }, 50);
     };
 
     window.startGraphGame = () => {
@@ -1568,7 +1592,11 @@
         window.graphMultiplier = 1.00;
         window.graphHistory = [1.00];
 
-        // 멈추기 버튼으로 UI 변경
+        // 리셋 및 UI 색상 복구
+        document.getElementById('graph-profit-display').innerText = bet + ' G';
+        document.getElementById('graph-profit-display').className = "font-mono text-base font-bold text-gold";
+
+        // 멈추기 버튼으로 컨트롤 UI 변경
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-3 my-auto items-center">
                 <p class="font-display text-gold text-[10px] tracking-widest uppercase mb-1 animate-pulse">Running...</p>
@@ -1593,8 +1621,12 @@
             if (Math.random() < crashChance) {
                 window.graphState = 'crashed';
                 clearInterval(window.graphInterval);
+                
+                // 크래쉬 효과 (배율판 붉은색, 예상 수익 0 G)
                 document.getElementById('graph-multiplier-display').innerText = window.graphMultiplier.toFixed(2) + 'x';
                 document.getElementById('graph-multiplier-display').className = "font-mono text-2xl font-bold text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] blink-effect";
+                document.getElementById('graph-profit-display').innerText = '0 G (CRASHED)';
+                document.getElementById('graph-profit-display').className = "font-mono text-sm font-bold text-red-500";
                 
                 setTimeout(() => {
                     showAlert(`[ CRASHED! ]\n그래프가 붕괴되었습니다!\n베팅금 ${currentGameData.graphBet} G를 잃었습니다.`);
@@ -1613,12 +1645,15 @@
 
             window.graphHistory.push(window.graphMultiplier);
             
-            // 배당 텍스트 렌더링
-            let displayColor = window.graphMultiplier >= 1.00 ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]" : "text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]";
-            document.getElementById('graph-multiplier-display').className = `font-mono text-2xl font-bold ${displayColor}`;
+            // 배당 텍스트 렌더링 (진행 중일 때는 테마 색인 골드 사용)
+            document.getElementById('graph-multiplier-display').className = `font-mono text-2xl font-bold text-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.8)]`;
             document.getElementById('graph-multiplier-display').innerText = window.graphMultiplier.toFixed(2) + 'x';
 
-        }, 100); // 1000ms -> 100ms 로 스피드업 변경
+            // 실시간 예상 수익률 렌더링
+            let currentPayout = Math.floor(currentGameData.graphBet * window.graphMultiplier);
+            document.getElementById('graph-profit-display').innerText = currentPayout + ' G';
+
+        }, 100); 
     };
 
     window.stopGraphGame = () => {
@@ -1634,7 +1669,10 @@
         window.playerCurrency += payout;
         window.updateCurrencyDisplay();
 
-        document.getElementById('graph-multiplier-display').className = "font-mono text-2xl font-bold text-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.8)]";
+        // 멈췄을 땐 눈에 띄도록 밝은 샴페인 컬러(text-champagne)로 변경
+        document.getElementById('graph-multiplier-display').className = "font-mono text-2xl font-bold text-champagne drop-shadow-[0_0_8px_rgba(242,240,228,0.8)]";
+        document.getElementById('graph-profit-display').className = "font-mono text-base font-bold text-champagne drop-shadow-[0_0_5px_rgba(242,240,228,0.5)]";
+        document.getElementById('graph-profit-display').innerText = payout + ' G (STOPPED)';
 
         setTimeout(() => {
             let msg = profit >= 0 
@@ -1642,7 +1680,7 @@
                 : `[ STOPPED! ]\n${window.graphMultiplier.toFixed(2)}x 에서 멈췄습니다.\n손실이 발생했습니다. (손실: ${profit} G)`;
             showAlert(msg);
             window.renderGraphBettingControls();
-        }, 500);
+        }, 800);
     };
 
     function drawGraph() {
@@ -1674,7 +1712,7 @@
             let range = maxVal - minVal;
             if(range === 0) range = 0.1; 
             
-            // X축 스케일링 (속도가 10배 빨라졌으므로 화면에 보여지는 최대 포인트 수도 30->150으로 넓혀 자연스럽게 표시)
+            // X축 스케일링
             let maxPoints = 150; 
             let startIdx = Math.max(0, hist.length - maxPoints);
             let displayHist = hist.slice(startIdx);
@@ -1690,10 +1728,10 @@
                 ctx.lineTo(px, py);
             }
             
-            // 꺾은선 색상 (진행중=초록, 터짐=빨강, 정지=골드)
+            // 꺾은선 색상 (진행중=골드, 터짐=빨강, 정지=밝은 샴페인)
             if (window.graphState === 'crashed') ctx.strokeStyle = '#ef4444';
-            else if (window.graphState === 'stopped') ctx.strokeStyle = '#D4AF37';
-            else ctx.strokeStyle = '#4ade80';
+            else if (window.graphState === 'stopped') ctx.strokeStyle = '#F2F0E4';
+            else ctx.strokeStyle = '#D4AF37';
             
             ctx.lineWidth = 3;
             ctx.stroke();
@@ -1702,8 +1740,8 @@
             ctx.lineTo((displayHist.length-1)*dx, h);
             ctx.lineTo(0, h);
             if (window.graphState === 'crashed') ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
-            else if (window.graphState === 'stopped') ctx.fillStyle = 'rgba(212, 175, 55, 0.1)';
-            else ctx.fillStyle = 'rgba(74, 222, 128, 0.1)';
+            else if (window.graphState === 'stopped') ctx.fillStyle = 'rgba(242, 240, 228, 0.1)';
+            else ctx.fillStyle = 'rgba(212, 175, 55, 0.1)';
             ctx.fill();
 
             // 끝에 빛나는 점 찍기
@@ -1714,10 +1752,10 @@
             if (window.graphState === 'crashed') {
                 ctx.fillStyle = '#ef4444';
             } else if (window.graphState === 'stopped') {
-                ctx.fillStyle = '#D4AF37';
+                ctx.fillStyle = '#F2F0E4';
             } else {
                 ctx.fillStyle = '#FFF';
-                ctx.shadowColor = '#4ade80';
+                ctx.shadowColor = '#D4AF37';
                 ctx.shadowBlur = 10;
             }
             ctx.fill();
