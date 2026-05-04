@@ -2327,15 +2327,20 @@
         window.renderScsBettingControls();
     };
 
+// 1. (수정) 베팅 대기 화면 컨트롤 (포커 족보 버튼 추가)
     window.renderScsBettingControls = () => {
         controlPanel.innerHTML = `
             <div class="w-full flex flex-col gap-2 my-auto">
                 <button onclick="window.scsStartGame()" class="btn-deco btn-solid min-h-[50px] text-sm shadow-[0_0_10px_rgba(212,175,55,0.4)]">새 게임 시작 (앤티: ${SCS_ANTE} G)</button>
-                <button onclick="renderGameMenu()" class="btn-deco min-h-[50px] text-xs border-pewter text-pewter">돌아가기</button>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="window.togglePokerGuide()" class="btn-deco min-h-[48px] text-xs border-gold/50 text-gold/80 hover:bg-gold/20">포커 족보 보기</button>
+                    <button onclick="renderGameMenu()" class="btn-deco min-h-[48px] text-xs border-pewter text-pewter">돌아가기</button>
+                </div>
             </div>
         `;
     };
 
+    // 2. (수정) 인게임 액션 컨트롤 (족보 버튼 및 올인 텍스트 동적 반영)
     window.renderScsActionControls = (toCall) => {
         const p = window.scsGame.players[0];
         controlPanel.innerHTML = `
@@ -2344,13 +2349,14 @@
                     <button onclick="window.scsHumanAction('fold')" class="btn-deco min-h-[48px] text-xs border-red-500 text-red-500 hover:bg-red-500 hover:text-white">폴드 (FOLD)</button>
                     ${toCall <= 0 
                         ? `<button onclick="window.scsHumanAction('check')" class="btn-deco min-h-[48px] text-xs border-green-400 text-green-400 hover:bg-green-400 hover:text-black">체크 (CHECK)</button>`
-                        : `<button onclick="window.scsHumanAction('call')" class="btn-deco min-h-[48px] text-xs border-champagne text-champagne hover:bg-champagne hover:text-black">콜 (CALL ${toCall})</button>`
+                        : `<button onclick="window.scsHumanAction('call')" class="btn-deco min-h-[48px] text-xs border-champagne text-champagne hover:bg-champagne hover:text-black">${window.playerCurrency <= toCall ? '올인 (ALL-IN)' : `콜 (CALL ${toCall})`}</button>`
                     }
                 </div>
                 <div class="flex gap-2">
                     <input type="number" id="scs-raise-val" class="input-deco w-1/3 !py-1 text-center font-bold text-gold bg-obsidian/50" value="${SCS_MIN_RAISE}" min="${SCS_MIN_RAISE}" step="${SCS_MIN_RAISE}">
                     <button onclick="window.scsHumanAction('raise')" class="btn-deco min-h-[40px] w-2/3 text-xs border-gold text-gold hover:bg-gold hover:text-black">레이즈 (RAISE)</button>
                 </div>
+                <button onclick="window.togglePokerGuide()" class="btn-deco min-h-[36px] text-[10px] border-gold/30 text-gold/70 hover:bg-gold/20 mt-1">포커 족보 확률 확인</button>
             </div>
         `;
     };
@@ -2516,6 +2522,7 @@
         }
     };
 
+    // 3. (수정) 액션 적용 함수 (콜, 레이즈 시 ALL-IN 로그 및 상태 텍스트 빨간색 강조)
     window.scsApplyAction = (pid, action, amount) => {
         const g = window.scsGame;
         const p = g.players[pid];
@@ -2543,8 +2550,10 @@
                 p.bet += callAmt;
                 g.pot += callAmt;
                 g.betRoundActions++;
-                window.scsSetStatus(pid, `CALL ${callAmt}`, 'text-champagne');
-                window.scsLog(`[${p.name}] CALL ${callAmt}`);
+
+                let isAllIn = (p.chips === 0);
+                window.scsSetStatus(pid, isAllIn ? `ALL-IN` : `CALL ${callAmt}`, isAllIn ? 'text-red-500' : 'text-champagne');
+                window.scsLog(`[${p.name}] ${isAllIn ? `ALL-IN (${callAmt})` : `CALL ${callAmt}`}`);
                 break;
             }
             case 'raise': {
@@ -2564,8 +2573,10 @@
                 g.pot += netAdd;
                 g.currentBet = p.bet;
                 g.betRoundActions = 1;
-                window.scsSetStatus(pid, `RAISE ${netAdd}`, 'text-gold');
-                window.scsLog(`[${p.name}] RAISE → ${p.bet}`, 'action');
+
+                let isAllIn = (p.chips === 0);
+                window.scsSetStatus(pid, isAllIn ? `ALL-IN RAISE` : `RAISE ${netAdd}`, isAllIn ? 'text-red-500' : 'text-gold');
+                window.scsLog(`[${p.name}] ${isAllIn ? 'ALL-IN RAISE' : `RAISE → ${p.bet}`}`, 'action');
                 break;
             }
         }
@@ -2584,6 +2595,7 @@
         window.scsNextAction();
     };
 
+    // 4. (수정) 플레이어 명령 처리 (잔액 부족 에러 대신 전재산 강제 올인 로직 적용)
     window.scsHumanAction = (action) => {
         const g = window.scsGame;
         if (!g) return;
@@ -2597,16 +2609,100 @@
             window.scsApplyAction(0, 'check');
         } else if (action === 'call') {
             if (toCall <= 0) { window.scsApplyAction(0, 'check'); return; }
-            if (window.playerCurrency < toCall) { showAlert('잔액이 부족합니다.'); return; }
+            // 잔액이 부족해도 보유한 칩 전부를 걸도록 자동 처리됨 (scsApplyAction 내부 로직)
             window.scsApplyAction(0, 'call', toCall);
         } else if (action === 'raise') {
             const amt = parseInt(document.getElementById('scs-raise-val').value) || SCS_MIN_RAISE;
-            if (amt < SCS_MIN_RAISE) { showAlert(`최소 레이즈는 ${SCS_MIN_RAISE} G 입니다.`); return; }
-            if (window.playerCurrency < toCall + amt) { showAlert('잔액이 부족합니다.'); return; }
-            const total = Math.min(p.chips, g.currentBet + amt);
-            window.scsApplyAction(0, 'raise', total);
+            
+            let totalDesiredBet = g.currentBet + amt;
+            let maxPossibleBet = p.bet + p.chips; // 현재 내 베팅금 + 보유 잔액(전재산)
+
+            if (maxPossibleBet <= g.currentBet) {
+                // 내 전재산을 합쳐도 현재 판돈(콜 금액) 이하라면 강제 올인 콜
+                window.scsApplyAction(0, 'call', toCall);
+            } else {
+                // 잔액이 부족하면 올인 레이즈, 넉넉하면 입력한 금액만큼 정상 레이즈
+                let finalTotalBet = Math.min(totalDesiredBet, maxPossibleBet);
+                window.scsApplyAction(0, 'raise', finalTotalBet);
+            }
         }
         window.scsNextAction();
+    };
+
+    // 5. (신규 추가) 포커 족보 팝업 띄우기 및 닫기 기능
+    window.togglePokerGuide = () => {
+        const existing = document.getElementById('poker-guide-overlay');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+
+        const guideHTML = `
+            <div id="poker-guide-overlay" class="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in">
+                <div class="w-full max-w-[360px] max-h-[85vh] bg-charcoal border-2 border-gold rounded-md shadow-gold-glow-intense flex flex-col overflow-hidden">
+                    
+                    <div class="w-full text-center py-3 border-b border-gold/30 bg-obsidian/80 shrink-0">
+                        <span class="font-display text-gold text-lg tracking-widest font-bold">포커 족보 확률 안내</span>
+                        <div class="text-pewter text-[10px] mt-1">단일 5장 기준 (전체 2,598,960가지 조합)</div>
+                    </div>
+
+                    <div class="p-4 overflow-y-auto filter-scroll flex-grow font-mono text-[11px] text-white/90 space-y-4 leading-relaxed">
+                        <div>
+                            <span class="text-red-400 font-bold text-sm">1. 스트레이트 플러시 (로얄 포함)</span><br>
+                            확률: 0.0015% (40가지)<br>
+                            <span class="text-pewter">5장의 무늬가 모두 같고 숫자가 연속된 패. 가장 강력한 조합.</span>
+                        </div>
+                        <div>
+                            <span class="text-gold font-bold text-sm">2. 포 오브 어 카인드 (포카드)</span><br>
+                            확률: 0.024% (624가지)<br>
+                            <span class="text-pewter">동일한 숫자 패 4장이 모인 조합.</span>
+                        </div>
+                        <div>
+                            <span class="text-champagne font-bold text-sm">3. 풀 하우스</span><br>
+                            확률: 0.144% (3,744가지)<br>
+                            <span class="text-pewter">동일 숫자 3장(트리플) + 동일 숫자 2장(페어)이 결합된 형태.</span>
+                        </div>
+                        <div>
+                            <span class="text-blue-400 font-bold text-sm">4. 플러시</span><br>
+                            확률: 0.197% (5,108가지)<br>
+                            <span class="text-pewter">숫자 순서에 상관없이 5장이 모두 같은 무늬인 패.</span>
+                        </div>
+                        <div>
+                            <span class="text-green-400 font-bold text-sm">5. 스트레이트</span><br>
+                            확률: 0.39% (10,200가지)<br>
+                            <span class="text-pewter">무늬에 상관없이 숫자가 5장 연속으로 이어진 패.</span>
+                        </div>
+                        <div>
+                            <span class="text-purple-400 font-bold text-sm">6. 쓰리 오브 어 카인드 (트리플)</span><br>
+                            확률: 2.11% (54,912가지)<br>
+                            <span class="text-pewter">5장 중 3장이 같은 숫자인 조합.</span>
+                        </div>
+                        <div>
+                            <span class="text-orange-400 font-bold text-sm">7. 투 페어</span><br>
+                            확률: 4.75% (123,552가지)<br>
+                            <span class="text-pewter">동일한 숫자 2장짜리 쌍이 두 세트 있는 형태.</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-300 font-bold text-sm">8. 원 페어</span><br>
+                            확률: 42.3% (1,098,240가지)<br>
+                            <span class="text-pewter">동일한 숫자 2장이 한 쌍 있는 조합.</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-500 font-bold text-sm">9. 노 페어 (하이카드)</span><br>
+                            확률: 50.1% (1,302,540가지)<br>
+                            <span class="text-pewter">아무 조합도 맞지 않은 상태.</span>
+                        </div>
+                    </div>
+
+                    <div class="p-3 border-t border-gold/30 bg-obsidian/80 shrink-0">
+                        <button onclick="window.togglePokerGuide()" class="btn-deco min-h-[44px] text-xs border-gold text-gold hover:bg-gold/20 w-full">닫기 (CLOSE)</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const container = document.getElementById('game-item-overlay') || document.body;
+        container.insertAdjacentHTML('beforeend', guideHTML);
     };
 
     window.scsEndStreet = () => {
