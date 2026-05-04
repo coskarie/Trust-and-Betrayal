@@ -2437,15 +2437,13 @@
 
         const g = window.scsGame;
         
-        // 봇 오링 방지 (리필)
         for(let i=1; i<=3; i++) {
             if(g.players[i].chips < SCS_ANTE) g.players[i].chips = 10000;
         }
 
-        document.getElementById('scs-log').innerHTML = ''; // 로그 초기화
+        document.getElementById('scs-log').innerHTML = ''; 
         window.scsLog(`— 새 게임 시작 (앤티: ${SCS_ANTE} G) —`, 'important');
 
-        // 앤티 징수 및 카드 분배
         for (let p of g.players) {
             if (p.id === 0) {
                 window.playerCurrency -= SCS_ANTE;
@@ -2468,12 +2466,15 @@
         g.currentBet = 0;
         for (let p of g.players) p.bet = 0;
 
-        // Bring-in 계산 (오픈 카드가 가장 낮은 사람)
         g.actionIdx = window.scsFindBringIn();
         window.scsUpdateUI();
         window.scsLog(`3rd Street — [${g.players[g.actionIdx].name}] 부터 시작`, 'action');
 
-        if (g.players[g.actionIdx].isBot) {
+        // FIX: 첫 Bring-in 차례인 플레이어가 앤티만 내고 올인 상태가 되었을 때의 스킵 처리
+        if (g.players[g.actionIdx].chips === 0) {
+            g.betRoundActions++;
+            setTimeout(window.scsNextAction, 50);
+        } else if (g.players[g.actionIdx].isBot) {
             controlPanel.innerHTML = `<div class="w-full flex justify-center items-center h-[50px]"><span class="text-gold animate-pulse text-xs">상대방 턴 대기 중...</span></div>`;
             setTimeout(window.scsDoBotTurn, 800);
         } else {
@@ -2499,7 +2500,9 @@
         const active = g.players.filter(p => !p.folded && !p.busted);
         if (active.length <= 1) { window.scsEndHand(); return; }
 
-        const toAct = active.filter(p => p.bet < g.currentBet);
+        // FIX: 올인(chips === 0) 유저는 추가 콜이 불가능하므로 베팅 대기열(toAct)에서 완전히 제외
+        const toAct = active.filter(p => p.bet < g.currentBet && p.chips > 0);
+        
         if (g.betRoundActions >= active.length && toAct.length === 0) {
             window.scsEndStreet();
             return;
@@ -2515,7 +2518,8 @@
         const p = g.players[g.actionIdx];
         if (p.chips === 0) {
             g.betRoundActions++;
-            window.scsNextAction();
+            // FIX: 재귀 깊이 초과로 인한 브라우저 프리징을 막기 위해 비동기로 턴 넘김 처리
+            setTimeout(window.scsNextAction, 50);
             return;
         }
 
@@ -2747,7 +2751,7 @@
 
         if (g.street > 4) { window.scsShowdown(); return; }
 
-        const isDown = g.street === 4; // 7th street만 hidden
+        const isDown = g.street === 4; 
         for (let p of g.players) {
             if (p.folded || p.busted) continue;
             const c = g.deck.pop();
@@ -2758,7 +2762,6 @@
         window.scsLog(`— ${SCS_ROUND_NAMES[g.street]} —`, 'important');
         window.scsUpdateUI();
 
-        // 3rd 이후로는 오픈 패가 가장 높은 사람이 선
         let best = null, bestId = active[0].id;
         for (let p of active) {
             const vis = p.cards.filter(c => !c.down);
@@ -2769,7 +2772,11 @@
         window.scsLog(`[${g.players[g.actionIdx].name}] 부터 베팅`, 'action');
         window.scsUpdateUI();
 
-        if (g.players[g.actionIdx].isBot) {
+        // FIX: 스트리트의 첫 차례인 플레이어가 이미 올인 상태라면 턴 강제 스킵
+        if (g.players[g.actionIdx].chips === 0) {
+            g.betRoundActions++;
+            setTimeout(window.scsNextAction, 50);
+        } else if (g.players[g.actionIdx].isBot) {
             controlPanel.innerHTML = `<div class="w-full flex justify-center items-center h-[50px]"><span class="text-gold animate-pulse text-xs">상대방 턴 대기 중...</span></div>`;
             setTimeout(window.scsDoBotTurn, 800);
         } else {
