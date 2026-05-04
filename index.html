@@ -1877,7 +1877,7 @@
                     <span class="font-display text-gold tracking-widest text-xs uppercase">베팅 금액</span>
                     <span class="font-display text-pewter text-[10px]">보유: ${window.formatCurrency(window.playerCurrency)}</span>
                 </div>
-                <input type="number" id="bj-bet-input" class="input-deco text-xl font-bold text-gold !py-2 bg-obsidian/50" value="100" readonly>
+                <input type="number" id="bj-bet-input" class="input-deco text-xl font-bold text-gold !py-2 bg-obsidian/50" value="0" readonly>
                 <div class="grid grid-cols-4 gap-1 mt-1">
                     <button onclick="addBjBet(10)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+10</button>
                     <button onclick="addBjBet(50)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+50</button>
@@ -1888,7 +1888,7 @@
                 </div>
                 <div class="grid grid-cols-1 gap-2 mt-2">
                     <button onclick="startBlackjackGame()" class="btn-deco btn-solid min-h-[48px] text-xs shadow-[0_0_10px_rgba(212,175,55,0.4)]">딜(DEAL) 시작</button>
-                    <button onclick="renderGameMenu()" class="btn-deco min-h-[48px] text-xs text-obsidian border-pewter text-pewter">돌아가기</button>
+                    <button onclick="renderGameMenu()" class="btn-deco min-h-[48px] text-xs border-pewter text-pewter">돌아가기</button>
                 </div>
             </div>
         `;
@@ -1896,12 +1896,15 @@
         window.addBjBet = (val) => {
             const input = document.getElementById('bj-bet-input');
             let current = parseInt(input.value) || 0;
+            
             if (val === 'MAX') current = window.playerCurrency;
-            else if (val === 'MIN') current = 10;
+            else if (val === 'MIN') current = 0; // 초기화 시 0으로 돌아가도록 수정
             else current += val;
             
-            if (current < 10) current = 10;
+            // 베팅금이 0 이하로 내려가지 않도록 수정
+            if (current < 0) current = 0;
             if (current > window.playerCurrency) current = window.playerCurrency;
+            
             input.value = current;
         };
     };
