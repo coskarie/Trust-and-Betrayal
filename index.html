@@ -1470,7 +1470,7 @@
         window.stopFrame = 0;
     });
 
-// 4. 그래프
+    // 4. 그래프
     window.graphAnimId = undefined;
     window.graphState = 'closed'; 
     window.graphMultiplier = 1.00;
@@ -1487,7 +1487,6 @@
         window.graphHistory = [1.00];
 
         // 캔버스 UI 배치 (여백 10px로 확장, CRASH RISK와 수익률 하단 분리)
-        // 기본 부모인 p-4(16px 여백)에서 좌우로 6px씩 넓혀서 정확히 10px 여백을 만듭니다.
         createGameOverlay(`
             <div class="flex flex-col items-center w-[calc(100%+12px)] max-w-[380px] -mx-[6px] gap-2">
                 
@@ -1504,7 +1503,7 @@
                         <span id="graph-profit-display" class="font-mono text-base font-bold text-gold">0 G</span>
                     </div>
                     <div class="flex flex-col items-end justify-center">
-                        <span id="graph-crash-chance" class="font-display text-xs font-bold text-red-500 tracking-widest uppercase">CRASH RISK: 1%</span>
+                        <span id="graph-crash-chance" class="font-display text-xs font-bold text-red-500 tracking-widest uppercase">CRASH RISK: 1.0%</span>
                     </div>
                 </div>
 
@@ -1610,12 +1609,13 @@
         window.graphInterval = setInterval(() => {
             if(window.graphState !== 'playing') return;
 
-            // 터질 확률 계산 (1.00기준 1%, 0.1 오를때마다 1% 증가)
+            // 터질 확률 계산 (1.00기준 1%, 0.1 오를때마다 0.1% 증가로 변경)
             let addedRisk = Math.floor((window.graphMultiplier - 1.00) / 0.1);
             if (addedRisk < 0) addedRisk = 0;
-            let crashChance = 0.01 + (addedRisk * 0.01);
+            let crashChance = 0.01 + (addedRisk * 0.001); // 0.01 곱하던 것을 0.001로 변경
 
-            document.getElementById('graph-crash-chance').innerText = `CRASH RISK: ${(crashChance * 100).toFixed(0)}%`;
+            // UI 렌더링 시 소수점 1자리까지 표시 (ex: 1.0%, 1.1%)
+            document.getElementById('graph-crash-chance').innerText = `CRASH RISK: ${(crashChance * 100).toFixed(1)}%`;
 
             // 1. 터짐 판정
             if (Math.random() < crashChance) {
