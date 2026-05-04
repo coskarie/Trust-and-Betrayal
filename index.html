@@ -664,15 +664,17 @@
         mainImage.src = filename;
         mainImage.style.display = 'block'; 
         mainImageText.innerText = filename;
-        
-        // 숨겨뒀던 파일명 명패 다시 보이게 복구
         mainImageText.parentElement.style.display = 'flex';
 
         // 🛑 진행 중이던 물리 엔진 애니메이션 끄기 🛑
         if (typeof slotAnimId !== 'undefined') cancelAnimationFrame(slotAnimId);
         if (typeof window.rouletteAnimId !== 'undefined') cancelAnimationFrame(window.rouletteAnimId);
+        if (typeof window.graphAnimId !== 'undefined') cancelAnimationFrame(window.graphAnimId); // 추가됨
+        if (window.graphInterval) clearInterval(window.graphInterval); // 추가됨
+        
         window.slotState = 'closed';
         window.rouletteState = 'closed';
+        window.graphState = 'closed'; // 추가됨
 
         // 게임 화면 등에서 만들었던 요소 지우기
         const existingOverlay = document.getElementById('black-overlay');
@@ -1469,25 +1471,261 @@
     });
 
     // 4. 그래프
+    window.graphAnimId = undefined;
+    window.graphState = 'closed'; 
+    window.graphMultiplier = 1.00;
+    window.graphHistory = [];
+    window.graphInterval = null;
+
     window.renderGraph = () => {
         updateMainDisplay('Graph.jpg');
+        mainImage.style.display = 'none'; 
+        mainImageText.parentElement.style.display = 'none';
+
+        window.graphState = 'idle';
+        window.graphMultiplier = 1.00;
+        window.graphHistory = [1.00];
+
+        // 캔버스 UI 배치
+        createGameOverlay(`
+            <div class="relative shadow-gold-glow border-[4px] border-obsidian rounded-md overflow-hidden bg-charcoal w-[96%] aspect-video max-w-[360px] flex flex-col">
+                <div class="absolute top-2 left-3 z-40">
+                    <span id="graph-multiplier-display" class="font-mono text-2xl font-bold text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]">1.00x</span>
+                </div>
+                <div class="absolute top-2 right-3 z-40">
+                    <span id="graph-crash-chance" class="font-display text-[10px] text-red-500 tracking-widest uppercase bg-black/50 px-2 py-1 rounded">CRASH RISK: 1%</span>
+                </div>
+                <canvas id="graph-canvas" width="340" height="190" class="bg-obsidian w-full h-full"></canvas>
+            </div>
+        `, true);
+
+        window.renderGraphBettingControls();
+        drawGraph();
+    };
+
+    window.renderGraphBettingControls = () => {
+        const minBet = Math.floor(window.playerCurrency / 2);
+        
         controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-3 my-auto" id="graph-controls">
-                <button onclick="startGraph()" class="btn-deco min-h-[56px] text-xs">시작하기</button>
-                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+            <div class="w-full flex flex-col gap-2 my-auto">
+                <div class="text-center mb-1 flex justify-between items-end border-b border-gold/30 pb-1">
+                    <span class="font-display text-gold tracking-widest text-xs uppercase">베팅 금액 (최소 50%)</span>
+                    <span class="font-display text-pewter text-[10px]">보유: ${window.formatCurrency(window.playerCurrency)}</span>
+                </div>
+                <input type="number" id="graph-bet-input" class="input-deco text-xl font-bold text-gold !py-2 bg-obsidian/50" value="${minBet}" readonly>
+                <div class="grid grid-cols-4 gap-1 mt-1">
+                    <button onclick="addGraphBet(10)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+10</button>
+                    <button onclick="addGraphBet(50)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+50</button>
+                    <button onclick="addGraphBet(100)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+100</button>
+                    <button onclick="addGraphBet(1000)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+1k</button>
+                    <button onclick="addGraphBet('MIN')" class="btn-deco min-h-[36px] text-[10px] border-pewter text-pewter hover:bg-white/10 col-span-2">초기화 (MIN)</button>
+                    <button onclick="addGraphBet('MAX')" class="btn-deco min-h-[36px] text-[10px] border-red-500 text-red-500 col-span-2 hover:bg-red-900/30">최대 (MAX)</button>
+                </div>
+                <div class="grid grid-cols-1 gap-2 mt-2">
+                    <button onclick="startGraphGame()" class="btn-deco btn-solid min-h-[48px] text-xs shadow-[0_0_10px_rgba(212,175,55,0.4)]">시작하기 (START)</button>
+                    <button onclick="renderGameMenu()" class="btn-deco min-h-[48px] text-xs text-obsidian border-pewter text-pewter">돌아가기 (RETURN)</button>
+                </div>
             </div>
         `;
+        
+        window.addGraphBet = (val) => {
+            const input = document.getElementById('graph-bet-input');
+            const minBet = Math.floor(window.playerCurrency / 2);
+            let current = parseInt(input.value) || minBet;
+            
+            if (val === 'MAX') current = window.playerCurrency;
+            else if (val === 'MIN') current = minBet;
+            else current += val;
+            
+            // 50% 이하로 내려가지 않도록 강제 방어
+            if (current < minBet) current = minBet;
+            if (current > window.playerCurrency) current = window.playerCurrency;
+            
+            input.value = current;
+        };
     };
-    window.startGraph = () => {
-        document.getElementById('graph-controls').innerHTML = `
-            <button onclick="stopGraph()" class="btn-deco min-h-[64px] text-sm border-red-500 text-red-500 hover:bg-red-500 hover:text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]">멈추기 (STOP)</button>
+
+    window.startGraphGame = () => {
+        const input = document.getElementById('graph-bet-input');
+        const minBet = Math.floor(window.playerCurrency / 2);
+        let bet = parseInt(input.value) || 0;
+
+        if (bet < minBet) {
+            showAlert(`전재산의 50%(${minBet}G) 이상을 베팅해야 합니다.`);
+            window.renderGraphBettingControls();
+            return;
+        }
+        if (bet > window.playerCurrency) {
+            showAlert("보유 재화가 부족합니다.");
+            return;
+        }
+
+        window.playerCurrency -= bet;
+        window.updateCurrencyDisplay();
+        currentGameData.graphBet = bet;
+
+        window.graphState = 'playing';
+        window.graphMultiplier = 1.00;
+        window.graphHistory = [1.00];
+
+        // 멈추기 버튼으로 UI 변경
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto items-center">
+                <p class="font-display text-gold text-[10px] tracking-widest uppercase mb-1 animate-pulse">Running...</p>
+                <button onclick="stopGraphGame()" class="btn-deco w-full min-h-[80px] text-xl border-red-500 text-red-500 hover:bg-red-500 hover:text-white shadow-[0_0_20px_rgba(239,68,68,0.4)] font-bold transition-all">멈추기 (STOP)</button>
+            </div>
         `;
-        socket.emit('playGame', { roomNum: currentRoom, game: 'graph_start' });
+
+        if(window.graphInterval) clearInterval(window.graphInterval);
+        
+        // 1초마다 주식 차트처럼 오르락 내리락 연산
+        window.graphInterval = setInterval(() => {
+            if(window.graphState !== 'playing') return;
+
+            // 터질 확률 계산 (1.00기준 1%, 0.1 오를때마다 1% 증가)
+            let addedRisk = Math.floor((window.graphMultiplier - 1.00) / 0.1);
+            if (addedRisk < 0) addedRisk = 0;
+            let crashChance = 0.01 + (addedRisk * 0.01);
+
+            document.getElementById('graph-crash-chance').innerText = `CRASH RISK: ${(crashChance * 100).toFixed(0)}%`;
+
+            // 1. 터짐 판정
+            if (Math.random() < crashChance) {
+                window.graphState = 'crashed';
+                clearInterval(window.graphInterval);
+                document.getElementById('graph-multiplier-display').innerText = window.graphMultiplier.toFixed(2) + 'x';
+                document.getElementById('graph-multiplier-display').className = "font-mono text-2xl font-bold text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] blink-effect";
+                
+                setTimeout(() => {
+                    showAlert(`[ CRASHED! ]\n그래프가 붕괴되었습니다!\n베팅금 ${currentGameData.graphBet} G를 잃었습니다.`);
+                    window.renderGraphBettingControls();
+                }, 1000);
+                return;
+            }
+
+            // 2. 오르기(60%) / 내리기(40%) 판정
+            if (Math.random() < 0.6) {
+                window.graphMultiplier += 0.01;
+            } else {
+                window.graphMultiplier -= 0.01;
+                if(window.graphMultiplier < 0.01) window.graphMultiplier = 0.01; // 음수 방지
+            }
+
+            window.graphHistory.push(window.graphMultiplier);
+            
+            // 배당 텍스트 렌더링
+            let displayColor = window.graphMultiplier >= 1.00 ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]" : "text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]";
+            document.getElementById('graph-multiplier-display').className = `font-mono text-2xl font-bold ${displayColor}`;
+            document.getElementById('graph-multiplier-display').innerText = window.graphMultiplier.toFixed(2) + 'x';
+
+        }, 1000); // 1초(1000ms) 간격
     };
-    window.stopGraph = () => {
-        socket.emit('playGame', { roomNum: currentRoom, game: 'graph_stop' });
-        renderGraph(); // UI 리셋
+
+    window.stopGraphGame = () => {
+        if(window.graphState !== 'playing') return;
+
+        window.graphState = 'stopped';
+        clearInterval(window.graphInterval);
+
+        // 정지 시점의 배당금 계산
+        let payout = Math.floor(currentGameData.graphBet * window.graphMultiplier);
+        let profit = payout - currentGameData.graphBet;
+        
+        window.playerCurrency += payout;
+        window.updateCurrencyDisplay();
+
+        document.getElementById('graph-multiplier-display').className = "font-mono text-2xl font-bold text-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.8)]";
+
+        setTimeout(() => {
+            let msg = profit >= 0 
+                ? `[ STOPPED! ]\n${window.graphMultiplier.toFixed(2)}x 에서 멈췄습니다.\n${payout} G 환급! (수익: +${profit} G)` 
+                : `[ STOPPED! ]\n${window.graphMultiplier.toFixed(2)}x 에서 멈췄습니다.\n손실이 발생했습니다. (손실: ${profit} G)`;
+            showAlert(msg);
+            window.renderGraphBettingControls();
+        }, 500);
     };
+
+    function drawGraph() {
+        if (window.graphState === 'closed') return;
+        
+        const canvas = document.getElementById('graph-canvas');
+        if(!canvas) {
+            window.graphAnimId = requestAnimationFrame(drawGraph);
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.clearRect(0, 0, w, h);
+
+        // 배경 그리드
+        ctx.strokeStyle = 'rgba(212, 175, 55, 0.1)';
+        ctx.lineWidth = 1;
+        for(let i=0; i<w; i+=25) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke(); }
+        for(let i=0; i<h; i+=25) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(w, i); ctx.stroke(); }
+
+        if(window.graphHistory && window.graphHistory.length > 0) {
+            const hist = window.graphHistory;
+            
+            // Y축 스케일링 (최소, 최대 배당률 기준)
+            let minVal = Math.min(...hist, 0.95);
+            let maxVal = Math.max(...hist, 1.05);
+            let range = maxVal - minVal;
+            if(range === 0) range = 0.1; 
+            
+            // X축 스케일링 (최대 30초치 표시)
+            let maxPoints = 30; 
+            let startIdx = Math.max(0, hist.length - maxPoints);
+            let displayHist = hist.slice(startIdx);
+            
+            let dx = w / Math.max(maxPoints - 1, 1);
+            
+            ctx.beginPath();
+            ctx.moveTo(0, h - ((displayHist[0] - minVal) / range) * (h - 20) - 10);
+            
+            for(let i=1; i<displayHist.length; i++) {
+                let px = i * dx;
+                let py = h - ((displayHist[i] - minVal) / range) * (h - 20) - 10;
+                ctx.lineTo(px, py);
+            }
+            
+            // 꺾은선 색상 (진행중=초록, 터짐=빨강, 정지=골드)
+            if (window.graphState === 'crashed') ctx.strokeStyle = '#ef4444';
+            else if (window.graphState === 'stopped') ctx.strokeStyle = '#D4AF37';
+            else ctx.strokeStyle = '#4ade80';
+            
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // 라인 아래 영역 색칠 (그라데이션 느낌)
+            ctx.lineTo((displayHist.length-1)*dx, h);
+            ctx.lineTo(0, h);
+            if (window.graphState === 'crashed') ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
+            else if (window.graphState === 'stopped') ctx.fillStyle = 'rgba(212, 175, 55, 0.1)';
+            else ctx.fillStyle = 'rgba(74, 222, 128, 0.1)';
+            ctx.fill();
+
+            // 끝에 빛나는 점 찍기
+            let lastY = h - ((displayHist[displayHist.length-1] - minVal) / range) * (h - 20) - 10;
+            ctx.beginPath();
+            ctx.arc((displayHist.length-1)*dx, lastY, 4, 0, Math.PI*2);
+            
+            if (window.graphState === 'crashed') {
+                ctx.fillStyle = '#ef4444';
+            } else if (window.graphState === 'stopped') {
+                ctx.fillStyle = '#D4AF37';
+            } else {
+                ctx.fillStyle = '#FFF';
+                ctx.shadowColor = '#4ade80';
+                ctx.shadowBlur = 10;
+            }
+            ctx.fill();
+            ctx.shadowBlur = 0; // 초기화
+        }
+
+        window.graphAnimId = requestAnimationFrame(drawGraph);
+    }
 
     // 5. 블랙잭
     window.renderBlackjack = () => {
