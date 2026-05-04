@@ -2629,7 +2629,7 @@
         window.scsNextAction();
     };
 
-    // 5. (신규 추가) 포커 족보 팝업 띄우기 및 닫기 기능
+    // 5. (수정) 포커 족보 팝업 함수 (괄호 누락 오류 수정완료)
     window.togglePokerGuide = () => {
         const existing = document.getElementById('poker-guide-overlay');
         if (existing) {
@@ -2637,65 +2637,86 @@
             return;
         }
 
+        // 콤펙트한 예시 카드 렌더링을 위한 헬퍼 함수
+        const s = (suit) => (suit === '♥' || suit === '♦') ? 'text-red-500' : 'text-obsidian';
+        const cHTML = (rank, suit) => `
+            <div class="w-[24px] h-[36px] bg-white border border-gold/60 rounded flex flex-col justify-between p-[2px] shadow relative shrink-0">
+                <span class="text-[8px] font-bold leading-none ${s(suit)}">${rank}</span>
+                <span class="text-[12px] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${s(suit)}">${suit}</span>
+            </div>
+        `;
+        const drawH = (cards) => `<div class="flex gap-1 mb-1.5">${cards.map(c => cHTML(c[0], c[1])).join('')}</div>`;
+
         const guideHTML = `
-            <div id="poker-guide-overlay" class="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in">
+            <div id="poker-guide-overlay" class="absolute inset-0 z-[100] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fade-in font-body">
                 <div class="w-full max-w-[360px] max-h-[85vh] bg-charcoal border-2 border-gold rounded-md shadow-gold-glow-intense flex flex-col overflow-hidden">
                     
                     <div class="w-full text-center py-3 border-b border-gold/30 bg-obsidian/80 shrink-0">
-                        <span class="font-display text-gold text-lg tracking-widest font-bold">포커 족보 확률 안내</span>
-                        <div class="text-pewter text-[10px] mt-1">단일 5장 기준 (전체 2,598,960가지 조합)</div>
+                        <span class="font-display text-gold text-lg tracking-widest font-bold">포커 족보 및 확률</span>
+                        <div class="text-pewter text-[10px] mt-1">세븐포커 7장 중 최상위 5장 조합 기준</div>
                     </div>
 
                     <div class="p-4 overflow-y-auto filter-scroll flex-grow font-mono text-[11px] text-white/90 space-y-4 leading-relaxed">
-                        <div>
-                            <span class="text-red-400 font-bold text-sm">1. 스트레이트 플러시 (로얄 포함)</span><br>
-                            확률: 0.0015% (40가지)<br>
-                            <span class="text-pewter">5장의 무늬가 모두 같고 숫자가 연속된 패. 가장 강력한 조합.</span>
+                        
+                        <div class="border-b border-gold/10 pb-3">
+                            <span class="text-red-400 font-bold text-sm">1. 스트레이트 플러시</span>
+                            <span class="text-white/60 text-[10px] ml-1">(로얄 포함)</span><br>
+                            ${drawH([['10','♠'],['J','♠'],['Q','♠'],['K','♠'],['A','♠']])}
+                            <span class="text-pewter">5장의 무늬가 같고 숫자가 연속된 패. 가장 강력한 조합.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-gold font-bold text-sm">2. 포 오브 어 카인드 (포카드)</span><br>
-                            확률: 0.024% (624가지)<br>
+                            ${drawH([['8','♥'],['8','♦'],['8','♠'],['8','♣'],['K','♠']])}
                             <span class="text-pewter">동일한 숫자 패 4장이 모인 조합.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-champagne font-bold text-sm">3. 풀 하우스</span><br>
-                            확률: 0.144% (3,744가지)<br>
-                            <span class="text-pewter">동일 숫자 3장(트리플) + 동일 숫자 2장(페어)이 결합된 형태.</span>
+                            ${drawH([['J','♣'],['J','♥'],['J','♠'],['5','♦'],['5','♣']])}
+                            <span class="text-pewter">트리플(동일 숫자 3장) + 페어(동일 숫자 2장)의 결합.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-blue-400 font-bold text-sm">4. 플러시</span><br>
-                            확률: 0.197% (5,108가지)<br>
-                            <span class="text-pewter">숫자 순서에 상관없이 5장이 모두 같은 무늬인 패.</span>
+                            ${drawH([['A','♦'],['J','♦'],['8','♦'],['5','♦'],['2','♦']])}
+                            <span class="text-pewter">숫자 순서와 상관없이 5장이 모두 같은 무늬인 패.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-green-400 font-bold text-sm">5. 스트레이트</span><br>
-                            확률: 0.39% (10,200가지)<br>
+                            ${drawH([['9','♣'],['8','♦'],['7','♠'],['6','♥'],['5','♠']])}
                             <span class="text-pewter">무늬에 상관없이 숫자가 5장 연속으로 이어진 패.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-purple-400 font-bold text-sm">6. 쓰리 오브 어 카인드 (트리플)</span><br>
-                            확률: 2.11% (54,912가지)<br>
+                            ${drawH([['Q','♠'],['Q','♥'],['Q','♦'],['9','♣'],['2','♥']])}
                             <span class="text-pewter">5장 중 3장이 같은 숫자인 조합.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-orange-400 font-bold text-sm">7. 투 페어</span><br>
-                            확률: 4.75% (123,552가지)<br>
+                            ${drawH([['10','♦'],['10','♠'],['7','♣'],['7','♥'],['A','♠']])}
                             <span class="text-pewter">동일한 숫자 2장짜리 쌍이 두 세트 있는 형태.</span>
                         </div>
-                        <div>
+
+                        <div class="border-b border-gold/10 pb-3">
                             <span class="text-gray-300 font-bold text-sm">8. 원 페어</span><br>
-                            확률: 42.3% (1,098,240가지)<br>
+                            ${drawH([['A','♣'],['A','♥'],['J','♦'],['8','♠'],['4','♣']])}
                             <span class="text-pewter">동일한 숫자 2장이 한 쌍 있는 조합.</span>
                         </div>
+
                         <div>
-                            <span class="text-gray-500 font-bold text-sm">9. 노 페어 (하이카드)</span><br>
-                            확률: 50.1% (1,302,540가지)<br>
-                            <span class="text-pewter">아무 조합도 맞지 않은 상태.</span>
+                            <span class="text-gray-500 font-bold text-sm">9. 하이카드 (노페어)</span><br>
+                            ${drawH([['K','♦'],['10','♠'],['7','♣'],['5','♥'],['2','♠']])}
+                            <span class="text-pewter">아무 조합도 맞지 않아 가장 높은 숫자를 따지는 패.</span>
                         </div>
+
                     </div>
 
-                    <div class="p-3 border-t border-gold/30 bg-obsidian/80 shrink-0">
-                        <button onclick="window.togglePokerGuide()" class="btn-deco min-h-[44px] text-xs border-gold text-gold hover:bg-gold/20 w-full">닫기 (CLOSE)</button>
+                    <div class="p-3 border-t border-gold/30 bg-obsidian/80 shrink-0 mt-auto">
+                        <button onclick="window.togglePokerGuide()" class="btn-deco min-h-[44px] text-xs border-gold text-gold hover:bg-gold/20 w-full transition-all font-bold">닫기 (CLOSE)</button>
                     </div>
                 </div>
             </div>
