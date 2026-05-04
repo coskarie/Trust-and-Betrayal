@@ -1766,29 +1766,351 @@
     }
 
     // 5. 블랙잭
+    window.bjState = 'closed'; 
+    window.bjDeck = [];
+    window.bjPlayer = [];
+    window.bjDealer = [];
+    window.bjBet = 0;
+
+    // 덱 생성 및 셔플 함수 (6덱 사용)
+    function createShoe() {
+        const suits = ['♠', '♥', '♦', '♣'];
+        const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        let shoe = [];
+        
+        for (let i = 0; i < 6; i++) { // 6덱
+            for (let suit of suits) {
+                for (let rank of ranks) {
+                    let value = parseInt(rank);
+                    if (['J', 'Q', 'K'].includes(rank)) value = 10;
+                    if (rank === 'A') value = 11;
+                    let color = (suit === '♥' || suit === '♦') ? 'text-red-600' : 'text-obsidian';
+                    shoe.push({ suit, rank, value, color });
+                }
+            }
+        }
+        // 피셔-예이츠 셔플
+        for (let i = shoe.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shoe[i], shoe[j]] = [shoe[j], shoe[i]];
+        }
+        return shoe;
+    }
+
+    // 점수 계산 함수 (Ace 로직 포함)
+    function calculateScore(hand) {
+        let score = 0;
+        let aces = 0;
+        for (let card of hand) {
+            score += card.value;
+            if (card.rank === 'A') aces += 1;
+        }
+        while (score > 21 && aces > 0) {
+            score -= 10;
+            aces -= 1;
+        }
+        return score;
+    }
+
+    // 카드 UI 생성 함수
+    function createCardHTML(card, isHidden = false) {
+        if (isHidden) {
+            return `
+                <div class="w-[50px] h-[75px] bg-obsidian border-2 border-gold rounded-md flex items-center justify-center shadow-[0_4px_6px_rgba(0,0,0,0.5)] bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-charcoal to-obsidian">
+                    <span class="text-gold text-2xl opacity-50">?</span>
+                </div>
+            `;
+        }
+        return `
+            <div class="w-[50px] h-[75px] bg-white border border-gold/50 rounded-md flex flex-col justify-between p-1 shadow-[0_4px_6px_rgba(0,0,0,0.5)] relative">
+                <span class="text-xs font-bold leading-none ${card.color}">${card.rank}</span>
+                <span class="text-2xl absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${card.color}">${card.suit}</span>
+                <span class="text-xs font-bold leading-none self-end rotate-180 ${card.color}">${card.rank}</span>
+            </div>
+        `;
+    }
+
     window.renderBlackjack = () => {
         updateMainDisplay('Blackjack.jpg');
+        mainImage.style.display = 'none'; 
         mainImageText.parentElement.style.display = 'none';
-        
-        // 메인 화면에 덱 렌더링 (디자인)
+
+        window.bjState = 'idle';
+        window.bjPlayer = [];
+        window.bjDealer = [];
+
+        // 블랙잭 게임판 UI (위: 딜러, 아래: 플레이어)
         createGameOverlay(`
-            <div class="flex gap-2">
-                <div class="w-12 h-16 border border-gold/50 rounded flex justify-center items-center bg-obsidian/80 cursor-pointer game-item-btn" onclick="socket.emit('playGame', {game:'blackjack_touch'})">
-                    <span class="text-gold text-xs">TOUCH</span>
+            <div class="flex flex-col items-center justify-between w-[calc(100%+12px)] max-w-[380px] -mx-[6px] h-full bg-charcoal border-[4px] border-obsidian rounded-md shadow-gold-glow p-4 relative">
+                
+                <div class="w-full flex flex-col items-center mb-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="font-display text-gold tracking-widest text-xs uppercase">Dealer</span>
+                        <span id="bj-dealer-score" class="font-mono text-sm bg-obsidian text-white px-2 py-0.5 rounded border border-gold/30">?</span>
+                    </div>
+                    <div id="bj-dealer-cards" class="flex justify-center gap-[-20px] min-h-[75px]">
+                        </div>
                 </div>
-                <div class="w-12 h-16 border border-gold/50 rounded bg-gold/10"></div>
+
+                <div class="flex-grow flex items-center justify-center z-10 my-2">
+                    <span id="bj-message" class="font-display text-xl font-bold text-champagne drop-shadow-[0_0_8px_rgba(212,175,55,0.8)] text-center whitespace-pre-line transition-all"></span>
+                </div>
+
+                <div class="w-full flex flex-col items-center mt-4">
+                    <div id="bj-player-cards" class="flex justify-center gap-[-20px] min-h-[75px] mb-2">
+                        </div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-display text-gold tracking-widest text-xs uppercase">Player</span>
+                        <span id="bj-player-score" class="font-mono text-sm bg-obsidian text-white px-2 py-0.5 rounded border border-gold/30">0</span>
+                    </div>
+                </div>
             </div>
         `, true);
 
+        window.renderBlackjackBettingControls();
+    };
+
+    window.renderBlackjackBettingControls = () => {
         controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-3 my-auto">
-                <div class="grid grid-cols-2 gap-3">
-                    <button onclick="socket.emit('playGame', {roomNum: currentRoom, game:'blackjack_hit'})" class="btn-deco h-12 text-xs">HIT</button>
-                    <button onclick="socket.emit('playGame', {roomNum: currentRoom, game:'blackjack_stand'})" class="btn-deco h-12 text-xs">STAND</button>
+            <div class="w-full flex flex-col gap-2 my-auto">
+                <div class="text-center mb-1 flex justify-between items-end border-b border-gold/30 pb-1">
+                    <span class="font-display text-gold tracking-widest text-xs uppercase">베팅 금액</span>
+                    <span class="font-display text-pewter text-[10px]">보유: ${window.formatCurrency(window.playerCurrency)}</span>
                 </div>
-                <button onclick="renderGameMenu()" class="btn-deco btn-solid min-h-[56px] mt-2">돌아가기</button>
+                <input type="number" id="bj-bet-input" class="input-deco text-xl font-bold text-gold !py-2 bg-obsidian/50" value="100" readonly>
+                <div class="grid grid-cols-4 gap-1 mt-1">
+                    <button onclick="addBjBet(10)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+10</button>
+                    <button onclick="addBjBet(50)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+50</button>
+                    <button onclick="addBjBet(100)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+100</button>
+                    <button onclick="addBjBet(1000)" class="btn-deco min-h-[36px] text-[10px] bg-charcoal hover:bg-gold/20">+1k</button>
+                    <button onclick="addBjBet('MIN')" class="btn-deco min-h-[36px] text-[10px] border-pewter text-pewter hover:bg-white/10 col-span-2">초기화</button>
+                    <button onclick="addBjBet('MAX')" class="btn-deco min-h-[36px] text-[10px] border-red-500 text-red-500 col-span-2 hover:bg-red-900/30">최대 (MAX)</button>
+                </div>
+                <div class="grid grid-cols-1 gap-2 mt-2">
+                    <button onclick="startBlackjackGame()" class="btn-deco btn-solid min-h-[48px] text-xs shadow-[0_0_10px_rgba(212,175,55,0.4)]">딜(DEAL) 시작</button>
+                    <button onclick="renderGameMenu()" class="btn-deco min-h-[48px] text-xs text-obsidian border-pewter text-pewter">돌아가기</button>
+                </div>
             </div>
         `;
+
+        window.addBjBet = (val) => {
+            const input = document.getElementById('bj-bet-input');
+            let current = parseInt(input.value) || 0;
+            if (val === 'MAX') current = window.playerCurrency;
+            else if (val === 'MIN') current = 10;
+            else current += val;
+            
+            if (current < 10) current = 10;
+            if (current > window.playerCurrency) current = window.playerCurrency;
+            input.value = current;
+        };
+    };
+
+    window.updateBlackjackUI = (revealDealer = false) => {
+        const dealerDiv = document.getElementById('bj-dealer-cards');
+        const playerDiv = document.getElementById('bj-player-cards');
+        const dealerScoreSpan = document.getElementById('bj-dealer-score');
+        const playerScoreSpan = document.getElementById('bj-player-score');
+
+        // 플레이어 렌더링
+        playerDiv.innerHTML = window.bjPlayer.map((card, i) => 
+            `<div class="transform transition-transform" style="margin-left: ${i === 0 ? '0' : '-20px'}">${createCardHTML(card)}</div>`
+        ).join('');
+        playerScoreSpan.innerText = calculateScore(window.bjPlayer);
+
+        // 딜러 렌더링
+        if (!revealDealer && window.bjDealer.length > 1) {
+            // 첫 카드는 오픈, 두 번째 카드는 히든
+            dealerDiv.innerHTML = `
+                <div class="transform transition-transform">${createCardHTML(window.bjDealer[0])}</div>
+                <div class="transform transition-transform" style="margin-left: -20px">${createCardHTML(window.bjDealer[1], true)}</div>
+            `;
+            // 히든 상태일 때는 오픈된 카드 하나의 점수만 표시
+            dealerScoreSpan.innerText = calculateScore([window.bjDealer[0]]);
+        } else {
+            dealerDiv.innerHTML = window.bjDealer.map((card, i) => 
+                `<div class="transform transition-transform" style="margin-left: ${i === 0 ? '0' : '-20px'}">${createCardHTML(card)}</div>`
+            ).join('');
+            dealerScoreSpan.innerText = calculateScore(window.bjDealer);
+        }
+    };
+
+    window.startBlackjackGame = () => {
+        const input = document.getElementById('bj-bet-input');
+        let bet = parseInt(input.value) || 0;
+
+        if (bet <= 0 || bet > window.playerCurrency) {
+            showAlert("베팅 금액이 올바르지 않거나 재화가 부족합니다.");
+            return;
+        }
+
+        window.playerCurrency -= bet;
+        window.updateCurrencyDisplay();
+        window.bjBet = bet;
+
+        // 덱이 부족하면 새로 섞기
+        if (window.bjDeck.length < 20) {
+            window.bjDeck = createShoe();
+        }
+
+        window.bjPlayer = [window.bjDeck.pop(), window.bjDeck.pop()];
+        window.bjDealer = [window.bjDeck.pop(), window.bjDeck.pop()];
+        window.bjState = 'playing';
+        
+        document.getElementById('bj-message').innerText = "";
+        window.updateBlackjackUI(false);
+        window.renderBlackjackActionControls();
+
+        // 내추럴 블랙잭 체크
+        const pScore = calculateScore(window.bjPlayer);
+        const dScore = calculateScore(window.bjDealer);
+
+        if (pScore === 21) {
+            if (dScore === 21) {
+                window.endBlackjackGame('push_blackjack');
+            } else {
+                window.endBlackjackGame('player_blackjack');
+            }
+        }
+    };
+
+    window.renderBlackjackActionControls = () => {
+        // 더블다운은 첫 2장일 때, 잔액이 베팅금만큼 더 있을 때만 가능
+        const canDouble = window.bjPlayer.length === 2 && window.playerCurrency >= window.bjBet;
+        
+        controlPanel.innerHTML = `
+            <div class="w-full grid grid-cols-2 gap-2 my-auto">
+                <button onclick="hitBlackjack()" class="btn-deco min-h-[60px] text-lg bg-obsidian text-white border-gold hover:bg-gold hover:text-black">히트<br><span class="text-[10px] font-normal">(HIT)</span></button>
+                <button onclick="standBlackjack()" class="btn-deco min-h-[60px] text-lg bg-obsidian text-white border-red-500 hover:bg-red-500 hover:text-white">스탠드<br><span class="text-[10px] font-normal">(STAND)</span></button>
+                ${canDouble ? `<button onclick="doubleDownBlackjack()" class="btn-deco min-h-[40px] text-xs col-span-2 border-pewter text-pewter hover:bg-pewter hover:text-black">더블 다운 (x2 BET & 1 HIT)</button>` : ''}
+            </div>
+        `;
+    };
+
+    window.hitBlackjack = () => {
+        if (window.bjState !== 'playing') return;
+        
+        window.bjPlayer.push(window.bjDeck.pop());
+        window.updateBlackjackUI(false);
+        window.renderBlackjackActionControls(); // 더블다운 버튼 제거를 위해 리렌더링
+
+        if (calculateScore(window.bjPlayer) > 21) {
+            window.endBlackjackGame('player_bust');
+        }
+    };
+
+    window.doubleDownBlackjack = () => {
+        if (window.bjState !== 'playing') return;
+        if (window.playerCurrency < window.bjBet) return;
+
+        // 베팅금 두 배
+        window.playerCurrency -= window.bjBet;
+        window.bjBet *= 2;
+        window.updateCurrencyDisplay();
+
+        // 1장만 받고 강제 스탠드
+        window.bjPlayer.push(window.bjDeck.pop());
+        window.updateBlackjackUI(false);
+
+        if (calculateScore(window.bjPlayer) > 21) {
+            window.endBlackjackGame('player_bust');
+        } else {
+            window.standBlackjack();
+        }
+    };
+
+    window.standBlackjack = () => {
+        if (window.bjState !== 'playing') return;
+        window.bjState = 'dealer_turn';
+
+        // 컨트롤 패널 비활성화
+        controlPanel.innerHTML = `
+            <div class="w-full flex justify-center items-center my-auto min-h-[80px]">
+                <p class="font-display text-gold tracking-widest animate-pulse">Dealer's Turn...</p>
+            </div>
+        `;
+
+        window.updateBlackjackUI(true); // 딜러 카드 오픈
+
+        // 딜러 플레이 로직 (16이하 히트, 17이상 스탠드)
+        const dealerPlay = setInterval(() => {
+            let dScore = calculateScore(window.bjDealer);
+            if (dScore < 17) {
+                window.bjDealer.push(window.bjDeck.pop());
+                window.updateBlackjackUI(true);
+            } else {
+                clearInterval(dealerPlay);
+                if (dScore > 21) {
+                    window.endBlackjackGame('dealer_bust');
+                } else {
+                    window.compareBlackjackScores();
+                }
+            }
+        }, 800); // 딜러가 카드를 뽑는 딜레이
+    };
+
+    window.compareBlackjackScores = () => {
+        const pScore = calculateScore(window.bjPlayer);
+        const dScore = calculateScore(window.bjDealer);
+
+        if (pScore > dScore) window.endBlackjackGame('player_win');
+        else if (pScore < dScore) window.endBlackjackGame('dealer_win');
+        else window.endBlackjackGame('push');
+    };
+
+    window.endBlackjackGame = (result) => {
+        window.bjState = 'gameover';
+        window.updateBlackjackUI(true);
+
+        let msg = "";
+        let payout = 0;
+
+        switch(result) {
+            case 'player_blackjack':
+                msg = "BLACKJACK!\n축하합니다!";
+                payout = window.bjBet + Math.floor(window.bjBet * 1.5);
+                document.getElementById('bj-message').className = "font-display text-2xl font-bold text-gold drop-shadow-[0_0_10px_rgba(212,175,55,1)] text-center whitespace-pre-line blink-effect";
+                break;
+            case 'push_blackjack':
+                msg = "PUSH\n딜러와 동시 블랙잭입니다.";
+                payout = window.bjBet;
+                document.getElementById('bj-message').className = "font-display text-xl font-bold text-pewter text-center whitespace-pre-line";
+                break;
+            case 'player_bust':
+                msg = "BUSTED\n21을 초과했습니다.";
+                document.getElementById('bj-message').className = "font-display text-xl font-bold text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] text-center whitespace-pre-line";
+                break;
+            case 'dealer_bust':
+                msg = "DEALER BUSTS!\n딜러가 21을 초과했습니다.";
+                payout = window.bjBet * 2;
+                document.getElementById('bj-message').className = "font-display text-xl font-bold text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)] text-center whitespace-pre-line";
+                break;
+            case 'player_win':
+                msg = "YOU WIN!\n딜러보다 점수가 높습니다.";
+                payout = window.bjBet * 2;
+                document.getElementById('bj-message').className = "font-display text-xl font-bold text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)] text-center whitespace-pre-line";
+                break;
+            case 'dealer_win':
+                msg = "DEALER WINS\n딜러의 점수가 더 높습니다.";
+                document.getElementById('bj-message').className = "font-display text-xl font-bold text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)] text-center whitespace-pre-line";
+                break;
+            case 'push':
+                msg = "PUSH\n무승부입니다.";
+                payout = window.bjBet;
+                document.getElementById('bj-message').className = "font-display text-xl font-bold text-pewter text-center whitespace-pre-line";
+                break;
+        }
+
+        document.getElementById('bj-message').innerText = msg;
+
+        if (payout > 0) {
+            window.playerCurrency += payout;
+            window.updateCurrencyDisplay();
+        }
+
+        setTimeout(() => {
+            window.renderBlackjackBettingControls();
+        }, 2000); // 2초 후 베팅 화면으로 복귀
     };
 
     // 6. 5장 홀덤
