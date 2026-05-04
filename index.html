@@ -1470,7 +1470,7 @@
         window.stopFrame = 0;
     });
 
-    // 4. 그래프
+// 4. 그래프
     window.graphAnimId = undefined;
     window.graphState = 'closed'; 
     window.graphMultiplier = 1.00;
@@ -1578,7 +1578,7 @@
 
         if(window.graphInterval) clearInterval(window.graphInterval);
         
-        // 1초마다 주식 차트처럼 오르락 내리락 연산
+        // 0.1초(100ms)마다 차트 연산
         window.graphInterval = setInterval(() => {
             if(window.graphState !== 'playing') return;
 
@@ -1603,8 +1603,8 @@
                 return;
             }
 
-            // 2. 오르기(60%) / 내리기(40%) 판정
-            if (Math.random() < 0.6) {
+            // 2. 오르기(70%) / 내리기(30%) 판정
+            if (Math.random() < 0.7) {
                 window.graphMultiplier += 0.01;
             } else {
                 window.graphMultiplier -= 0.01;
@@ -1618,7 +1618,7 @@
             document.getElementById('graph-multiplier-display').className = `font-mono text-2xl font-bold ${displayColor}`;
             document.getElementById('graph-multiplier-display').innerText = window.graphMultiplier.toFixed(2) + 'x';
 
-        }, 1000); // 1초(1000ms) 간격
+        }, 100); // 1000ms -> 100ms 로 스피드업 변경
     };
 
     window.stopGraphGame = () => {
@@ -1674,8 +1674,8 @@
             let range = maxVal - minVal;
             if(range === 0) range = 0.1; 
             
-            // X축 스케일링 (최대 30초치 표시)
-            let maxPoints = 30; 
+            // X축 스케일링 (속도가 10배 빨라졌으므로 화면에 보여지는 최대 포인트 수도 30->150으로 넓혀 자연스럽게 표시)
+            let maxPoints = 150; 
             let startIdx = Math.max(0, hist.length - maxPoints);
             let displayHist = hist.slice(startIdx);
             
