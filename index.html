@@ -2116,29 +2116,605 @@
         }, 2000); // 2초 후 베팅 화면으로 복귀
     };
 
-    // 6. 5장 홀덤
-    window.renderHoldem = () => {
-        updateMainDisplay('Holdem.jpg');
-        mainImageText.parentElement.style.display = 'none';
+    // ==========================================
+    // 6. 세븐카드 스터드 (봇 3인전)
+    // ==========================================
+    window.scsState = 'closed';
+    window.scsGame = null;
+    
+    // 게임 설정값
+    const SCS_SUITS = ['♠', '♥', '♦', '♣'];
+    const SCS_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+    const SCS_RANK_VAL = { '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14 };
+    const SCS_ANTE = 50; // 기본 앤티(참가비)
+    const SCS_MIN_RAISE = 50; // 최소 레이즈 금액
+    const SCS_ROUND_NAMES = ['3rd Street', '4th Street', '5th Street', '6th Street', '7th Street (Showdown)'];
+    const SCS_HAND_NAMES = ['하이카드', '원 페어', '투 페어', '쓰리 오브 어 카인드', '스트레이트', '플러시', '풀 하우스', '포 오브 어 카인드', '스트레이트 플러시'];
+
+    // 덱 생성 및 셔플
+    window.scsMakeDeck = () => {
+        let d = [];
+        for (let s of SCS_SUITS) for (let r of SCS_RANKS) d.push({ suit: s, rank: r, val: SCS_RANK_VAL[r] });
+        for (let i = d.length - 1; i > 0; i--) {
+            let j = Math.floor(Math.random() * (i + 1));
+            [d[i], d[j]] = [d[j], d[i]];
+        }
+        return d;
+    };
+
+    // 족보 계산 로직 (5장 추출)
+    window.scsCombinations = (arr, k) => {
+        if (k === 0) return [[]];
+        if (arr.length < k) return [];
+        const [first, ...rest] = arr;
+        return [...window.scsCombinations(rest, k - 1).map(c => [first, ...c]), ...window.scsCombinations(rest, k)];
+    };
+
+    window.scsEvalFive = (cards) => {
+        const vals = cards.map(c => c.val).sort((a, b) => b - a);
+        const suits = cards.map(c => c.suit);
+        const flush = suits.every(s => s === suits[0]);
+
+        let straight = false;
+        let straightHigh = vals[0];
+        const sortedV = [...vals];
+        if (sortedV[0] - sortedV[4] === 4 && new Set(sortedV).size === 5) { straight = true; straightHigh = sortedV[0]; }
+        if (vals.join() === '14,5,4,3,2') { straight = true; straightHigh = 5; }
+
+        const freq = {};
+        for (let v of vals) freq[v] = (freq[v] || 0) + 1;
+        const counts = Object.values(freq).sort((a, b) => b - a);
+        const countGroups = {};
+        for (let [v, c] of Object.entries(freq)) { countGroups[c] = (countGroups[c] || []).concat(+v); }
+        for (let k in countGroups) countGroups[k].sort((a, b) => b - a);
+
+        if (flush && straight) return { rank: 8, tiebreak: [straightHigh] };
+        if (counts[0] === 4) return { rank: 7, tiebreak: [...(countGroups[4] || []), ...(countGroups[1] || [])] };
+        if (counts[0] === 3 && counts[1] === 2) return { rank: 6, tiebreak: [...(countGroups[3] || []), ...(countGroups[2] || [])] };
+        if (flush) return { rank: 5, tiebreak: vals };
+        if (straight) return { rank: 4, tiebreak: [straightHigh] };
+        if (counts[0] === 3) return { rank: 3, tiebreak: [...(countGroups[3] || []), ...(countGroups[1] || [])] };
+        if (counts[0] === 2 && counts[1] === 2) {
+            const pairs = (countGroups[2] || []).sort((a, b) => b - a);
+            return { rank: 2, tiebreak: [...pairs, ...(countGroups[1] || [])] };
+        }
+        if (counts[0] === 2) return { rank: 1, tiebreak: [...(countGroups[2] || []), ...(countGroups[1] || [])] };
+        return { rank: 0, tiebreak: vals };
+    };
+
+    window.scsBestHand = (cards) => {
+        if (cards.length < 5) return window.scsEvalFive(cards.length >= 2 ? cards.slice(0, 5) : cards);
+        const combos = window.scsCombinations(cards, 5);
+        let best = null;
+        for (let c of combos) {
+            let e = window.scsEvalFive(c);
+            if (!best || window.scsCompareEval(e, best) > 0) best = e;
+        }
+        return best;
+    };
+
+    window.scsCompareEval = (a, b) => {
+        if (a.rank !== b.rank) return a.rank - b.rank;
+        for (let i = 0; i < Math.max(a.tiebreak.length, b.tiebreak.length); i++) {
+            let av = a.tiebreak[i] || 0, bv = b.tiebreak[i] || 0;
+            if (av !== bv) return av - bv;
+        }
+        return 0;
+    };
+
+    // 봇 AI (강도 계산)
+    window.scsHandStrength = (cards) => {
+        if (!cards || cards.length === 0) return 0;
+        const vis = cards.filter(c => !c.down);
+        const e = window.scsBestHand(cards.length >= 2 ? cards : vis);
+        if (!e) return 0;
         
+        let score = e.rank / 8;
+        if (cards.length <= 5) {
+            const suits2 = cards.map(c => c.suit);
+            const maxSuit = Math.max(...Object.values(suits2.reduce((a, s) => { a[s] = (a[s] || 0) + 1; return a; }, {})));
+            if (maxSuit >= 4) score = Math.max(score, 0.45);
+            const vals2 = [...new Set(cards.map(c => c.val))].sort((a, b) => a - b);
+            for (let i = 0; i <= vals2.length - 4; i++) {
+                if (vals2[i + 3] - vals2[i] <= 4) score = Math.max(score, 0.4);
+            }
+        }
+        return Math.min(1, score + e.rank * 0.05);
+    };
+
+    window.scsBotDecide = (player, toCall, pot, street) => {
+        const str = window.scsHandStrength(player.cards);
+        const bluff = Math.random() < 0.12;
+        const effectiveStr = bluff ? Math.min(1, str + 0.35) : str;
+        const adj = Math.min(1, effectiveStr + (street * 0.04));
+
+        if (toCall === 0) {
+            if (adj > 0.55) {
+                const raiseAmt = Math.min(player.chips, Math.floor(pot * (0.3 + adj * 0.4)));
+                return { action: 'raise', amount: Math.max(SCS_MIN_RAISE, Math.min(raiseAmt, player.chips)) };
+            }
+            return { action: 'check' };
+        } else {
+            if (adj < 0.25) return { action: 'fold' };
+            if (adj > 0.70 && player.chips > toCall + SCS_MIN_RAISE) {
+                const extra = Math.floor(toCall * (0.5 + adj));
+                return { action: 'raise', amount: Math.min(player.chips, toCall + Math.max(SCS_MIN_RAISE, extra)) };
+            }
+            if (player.chips <= toCall) return { action: 'call', amount: player.chips };
+            return { action: 'call', amount: toCall };
+        }
+    };
+
+    // UI 렌더링 도구
+    window.createScsCardHTML = (card, isHidden = false, isOwn = false) => {
+        if (isHidden && !isOwn) {
+            return `
+                <div class="w-[28px] h-[40px] bg-obsidian border-[1.5px] border-gold/60 rounded flex items-center justify-center shadow-md bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-charcoal to-obsidian shrink-0">
+                    <span class="text-gold/40 text-[10px]">?</span>
+                </div>
+            `;
+        }
+        let opacityClass = (isHidden && isOwn) ? 'opacity-60 border-dashed' : 'opacity-100 border-solid';
+        let colorClass = (card.suit === '♥' || card.suit === '♦') ? 'text-red-500' : 'text-obsidian';
+        return `
+            <div class="w-[28px] h-[40px] bg-white border-[1.5px] border-gold/80 rounded flex flex-col justify-between p-[2px] shadow-md relative shrink-0 ${opacityClass}">
+                <span class="text-[9px] font-bold leading-none ${colorClass}">${card.rank}</span>
+                <span class="text-[14px] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 ${colorClass}">${card.suit}</span>
+            </div>
+        `;
+    };
+
+    window.scsLog = (msg, type = 'normal') => {
+        const logEl = document.getElementById('scs-log');
+        if (!logEl) return;
+        let color = 'text-pewter';
+        if (type === 'important') color = 'text-gold drop-shadow-[0_0_2px_rgba(212,175,55,0.8)]';
+        if (type === 'win') color = 'text-green-400 drop-shadow-[0_0_2px_rgba(74,222,128,0.8)]';
+        if (type === 'action') color = 'text-champagne';
+        
+        logEl.innerHTML += `<div class="mb-0.5 ${color}">> ${msg}</div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    window.renderSevenCardStud = () => {
+        updateMainDisplay('Poker.jpg'); // 임시 이미지 이름
+        mainImage.style.display = 'none'; 
+        mainImageText.parentElement.style.display = 'none';
+
+        window.scsState = 'idle';
+
         createGameOverlay(`
-            <div class="flex gap-1 justify-center">
-                ${[1,2,3,4,5].map(i => `<div class="w-10 h-14 border border-gold/50 rounded bg-obsidian/80 flex items-center justify-center cursor-pointer game-item-btn" onclick="showAlert('카드 ${i} 터치')"><span class="text-[8px] text-gold">${i}</span></div>`).join('')}
+            <div class="flex flex-col items-center w-[calc(100%+12px)] max-w-[380px] -mx-[6px] h-full bg-charcoal border-[4px] border-obsidian rounded-md shadow-gold-glow p-2 gap-2 relative">
+                
+                <div class="w-full text-center border-b border-gold/30 pb-1 mb-1">
+                    <span class="font-display text-gold/70 tracking-widest text-[9px] uppercase block">Total Pot</span>
+                    <span id="scs-pot-display" class="font-mono text-2xl font-bold text-gold drop-shadow-[0_0_8px_rgba(212,175,55,0.8)]">0 G</span>
+                    <span id="scs-round-info" class="font-display text-pewter tracking-widest text-[10px] uppercase block mt-0.5">— 대기 중 —</span>
+                </div>
+
+                <div class="w-full flex justify-between gap-1 h-[95px]">
+                    ${[1, 2, 3].map(id => `
+                        <div id="scs-slot-${id}" class="flex flex-col items-center justify-between bg-obsidian/60 border border-gold/30 rounded p-1 w-1/3 transition-all">
+                            <span class="font-display text-gold/80 text-[9px] uppercase">Bot ${id}</span>
+                            <span id="scs-chips-${id}" class="font-mono text-[9px] text-pewter">10000 G</span>
+                            <div id="scs-status-${id}" class="font-display text-[8px] h-[12px] text-champagne blink-effect"></div>
+                            <div id="scs-cards-${id}" class="flex gap-[-15px] overflow-visible w-full justify-center"></div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="w-full h-[65px] bg-obsidian/90 border border-gold/20 rounded shadow-inner overflow-y-auto p-1.5 font-mono text-[9px] leading-tight" id="scs-log">
+                    <div class="text-pewter">> 게임을 시작해주세요.</div>
+                </div>
+
+                <div id="scs-slot-0" class="w-full flex flex-col items-center bg-obsidian border-2 border-gold/50 rounded p-2 mt-auto relative transition-all">
+                    <div class="flex justify-between w-full mb-1">
+                        <span class="font-display text-gold text-xs uppercase font-bold">You (Player)</span>
+                        <span id="scs-chips-0" class="font-mono text-xs text-green-400">${window.formatCurrency(window.playerCurrency)}</span>
+                    </div>
+                    <div id="scs-status-0" class="font-display text-[10px] h-[14px] text-champagne mb-1"></div>
+                    <div id="scs-cards-0" class="flex flex-wrap justify-center gap-1 w-full min-h-[40px]"></div>
+                </div>
+
+                <div id="scs-message-overlay" class="absolute inset-0 bg-black/80 z-50 flex-col items-center justify-center hidden rounded-sm">
+                    <h2 id="scs-result-title" class="font-display text-2xl text-gold font-bold mb-2"></h2>
+                    <p id="scs-result-body" class="font-mono text-sm text-white text-center whitespace-pre-line mb-2"></p>
+                    <p id="scs-result-hand" class="font-display text-lg text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.8)]"></p>
+                </div>
             </div>
         `, true);
 
+        window.renderScsBettingControls();
+    };
+
+    window.renderScsBettingControls = () => {
         controlPanel.innerHTML = `
-            <div class="w-full flex flex-col gap-3 my-auto">
+            <div class="w-full flex flex-col gap-2 my-auto">
+                <button onclick="window.scsStartGame()" class="btn-deco btn-solid min-h-[50px] text-sm shadow-[0_0_10px_rgba(212,175,55,0.4)]">새 게임 시작 (앤티: ${SCS_ANTE} G)</button>
+                <button onclick="renderGameMenu()" class="btn-deco min-h-[50px] text-xs border-pewter text-pewter">돌아가기</button>
+            </div>
+        `;
+    };
+
+    window.renderScsActionControls = (toCall) => {
+        const p = window.scsGame.players[0];
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-2 my-auto">
                 <div class="grid grid-cols-2 gap-2">
-                    <button onclick="socket.emit('playGame', {game:'holdem_call'})" class="btn-deco h-12 text-xs">CHECK / CALL</button>
-                    <button onclick="socket.emit('playGame', {game:'holdem_raise'})" class="btn-deco h-12 text-xs">BET / RAISE</button>
+                    <button onclick="window.scsHumanAction('fold')" class="btn-deco min-h-[48px] text-xs border-red-500 text-red-500 hover:bg-red-500 hover:text-white">폴드 (FOLD)</button>
+                    ${toCall <= 0 
+                        ? `<button onclick="window.scsHumanAction('check')" class="btn-deco min-h-[48px] text-xs border-green-400 text-green-400 hover:bg-green-400 hover:text-black">체크 (CHECK)</button>`
+                        : `<button onclick="window.scsHumanAction('call')" class="btn-deco min-h-[48px] text-xs border-champagne text-champagne hover:bg-champagne hover:text-black">콜 (CALL ${toCall})</button>`
+                    }
                 </div>
-                <div class="grid grid-cols-2 gap-2 mt-1">
-                    <button onclick="socket.emit('playGame', {game:'holdem_fold'})" class="btn-deco h-12 text-xs border-gray-500 text-gray-500">FOLD</button>
-                    <button onclick="renderGameMenu()" class="btn-deco btn-solid h-12">돌아가기</button>
+                <div class="flex gap-2">
+                    <input type="number" id="scs-raise-val" class="input-deco w-1/3 !py-1 text-center font-bold text-gold bg-obsidian/50" value="${SCS_MIN_RAISE}" min="${SCS_MIN_RAISE}" step="${SCS_MIN_RAISE}">
+                    <button onclick="window.scsHumanAction('raise')" class="btn-deco min-h-[40px] w-2/3 text-xs border-gold text-gold hover:bg-gold hover:text-black">레이즈 (RAISE)</button>
                 </div>
             </div>
         `;
+    };
+
+    // UI 업데이트 함수들
+    window.scsUpdateUI = () => {
+        const g = window.scsGame;
+        if (!g) return;
+
+        document.getElementById('scs-pot-display').innerText = `${g.pot} G`;
+        document.getElementById('scs-round-info').innerText = g.street <= 4 ? SCS_ROUND_NAMES[g.street] : '—';
+
+        for (let p of g.players) {
+            const slot = document.getElementById(`scs-slot-${p.id}`);
+            const cardsDiv = document.getElementById(`scs-cards-${p.id}`);
+            const chipsSpan = document.getElementById(`scs-chips-${p.id}`);
+            const statusDiv = document.getElementById(`scs-status-${p.id}`);
+
+            // 클래스 리셋
+            slot.classList.remove('border-green-400', 'opacity-40', 'shadow-[0_0_10px_rgba(74,222,128,0.5)]');
+            if (p.folded || p.busted) {
+                slot.classList.add('opacity-40');
+            } else if (p.id === g.actionIdx) {
+                slot.classList.add('border-green-400', 'shadow-[0_0_10px_rgba(74,222,128,0.5)]');
+            }
+
+            chipsSpan.innerText = p.id === 0 ? window.formatCurrency(window.playerCurrency) : `${p.chips} G`;
+            
+            // 카드 렌더링
+            cardsDiv.innerHTML = '';
+            p.cards.forEach((c, idx) => {
+                const wrapper = document.createElement('div');
+                // 봇은 카드를 겹치게(음수 마진), 플레이어는 그냥 나열
+                if (p.id !== 0 && idx > 0) wrapper.style.marginLeft = '-15px'; 
+                wrapper.innerHTML = window.createScsCardHTML(c, c.down, p.id === 0);
+                cardsDiv.appendChild(wrapper);
+            });
+        }
+    };
+
+    window.scsSetStatus = (pid, text, colorClass = 'text-champagne') => {
+        const el = document.getElementById(`scs-status-${pid}`);
+        if(el) {
+            el.innerText = text;
+            el.className = `font-display text-[8px] h-[12px] ${colorClass} blink-effect`;
+            setTimeout(() => { el.classList.remove('blink-effect'); }, 1000);
+        }
+    };
+
+    // 게임 로직
+    window.scsStartGame = () => {
+        if (window.playerCurrency < SCS_ANTE) {
+            showAlert("앤티(참가비)를 지불할 재화가 부족합니다.");
+            return;
+        }
+
+        const prevChips = window.scsGame ? window.scsGame.players.map(p => p.chips) : [window.playerCurrency, 10000, 10000, 10000];
+        
+        window.scsGame = {
+            deck: window.scsMakeDeck(),
+            pot: 0,
+            street: 0,
+            currentBet: 0,
+            players: [
+                { id: 0, name: 'You', chips: window.playerCurrency, cards: [], bet: 0, folded: false, busted: false, isBot: false },
+                { id: 1, name: 'Bot 1', chips: prevChips[1], cards: [], bet: 0, folded: false, busted: false, isBot: true },
+                { id: 2, name: 'Bot 2', chips: prevChips[2], cards: [], bet: 0, folded: false, busted: false, isBot: true },
+                { id: 3, name: 'Bot 3', chips: prevChips[3], cards: [], bet: 0, folded: false, busted: false, isBot: true }
+            ],
+            actionIdx: 0,
+            betRoundActions: 0
+        };
+
+        const g = window.scsGame;
+        
+        // 봇 오링 방지 (리필)
+        for(let i=1; i<=3; i++) {
+            if(g.players[i].chips < SCS_ANTE) g.players[i].chips = 10000;
+        }
+
+        document.getElementById('scs-log').innerHTML = ''; // 로그 초기화
+        window.scsLog(`— 새 게임 시작 (앤티: ${SCS_ANTE} G) —`, 'important');
+
+        // 앤티 징수 및 카드 분배
+        for (let p of g.players) {
+            if (p.id === 0) {
+                window.playerCurrency -= SCS_ANTE;
+                window.updateCurrencyDisplay();
+                p.chips = window.playerCurrency;
+            } else {
+                p.chips -= SCS_ANTE;
+            }
+            p.bet += SCS_ANTE;
+            g.pot += SCS_ANTE;
+
+            let c1 = g.deck.pop(); c1.down = true;
+            let c2 = g.deck.pop(); c2.down = true;
+            let c3 = g.deck.pop(); c3.down = false;
+            p.cards = [c1, c2, c3];
+            
+            window.scsSetStatus(p.id, '');
+        }
+
+        g.currentBet = 0;
+        for (let p of g.players) p.bet = 0;
+
+        // Bring-in 계산 (오픈 카드가 가장 낮은 사람)
+        g.actionIdx = window.scsFindBringIn();
+        window.scsUpdateUI();
+        window.scsLog(`3rd Street — [${g.players[g.actionIdx].name}] 부터 시작`, 'action');
+
+        if (g.players[g.actionIdx].isBot) {
+            controlPanel.innerHTML = `<div class="w-full flex justify-center items-center h-[50px]"><span class="text-gold animate-pulse text-xs">상대방 턴 대기 중...</span></div>`;
+            setTimeout(window.scsDoBotTurn, 800);
+        } else {
+            window.renderScsActionControls(0);
+        }
+    };
+
+    window.scsFindBringIn = () => {
+        const suitOrder = { '♣': 0, '♦': 1, '♥': 2, '♠': 3 };
+        let active = window.scsGame.players.filter(p => !p.folded && !p.busted);
+        active.sort((a, b) => {
+            let av = a.cards.find(c => !c.down);
+            let bv = b.cards.find(c => !c.down);
+            if (!av || !bv) return 0;
+            if (av.val !== bv.val) return av.val - bv.val;
+            return suitOrder[av.suit] - suitOrder[bv.suit];
+        });
+        return active[0].id;
+    };
+
+    window.scsNextAction = () => {
+        const g = window.scsGame;
+        const active = g.players.filter(p => !p.folded && !p.busted);
+        if (active.length <= 1) { window.scsEndHand(); return; }
+
+        const toAct = active.filter(p => p.bet < g.currentBet);
+        if (g.betRoundActions >= active.length && toAct.length === 0) {
+            window.scsEndStreet();
+            return;
+        }
+
+        let next = (g.actionIdx + 1) % 4;
+        let tries = 0;
+        while ((g.players[next].folded || g.players[next].busted) && tries < 4) { next = (next + 1) % 4; tries++; }
+        g.actionIdx = next;
+
+        window.scsUpdateUI();
+
+        const p = g.players[g.actionIdx];
+        if (p.chips === 0) {
+            g.betRoundActions++;
+            window.scsNextAction();
+            return;
+        }
+
+        if (p.isBot) {
+            controlPanel.innerHTML = `<div class="w-full flex justify-center items-center h-[50px]"><span class="text-gold animate-pulse text-xs">상대방 턴 대기 중...</span></div>`;
+            setTimeout(window.scsDoBotTurn, 800);
+        } else {
+            window.renderScsActionControls(g.currentBet - p.bet);
+        }
+    };
+
+    window.scsApplyAction = (pid, action, amount) => {
+        const g = window.scsGame;
+        const p = g.players[pid];
+        
+        switch (action) {
+            case 'fold':
+                p.folded = true;
+                window.scsSetStatus(pid, 'FOLD', 'text-red-500');
+                window.scsLog(`[${p.name}] FOLD`);
+                break;
+            case 'check':
+                g.betRoundActions++;
+                window.scsSetStatus(pid, 'CHECK', 'text-green-400');
+                window.scsLog(`[${p.name}] CHECK`);
+                break;
+            case 'call': {
+                const callAmt = Math.min(g.currentBet - p.bet, p.chips);
+                if (pid === 0) {
+                    window.playerCurrency -= callAmt;
+                    window.updateCurrencyDisplay();
+                    p.chips = window.playerCurrency;
+                } else {
+                    p.chips -= callAmt;
+                }
+                p.bet += callAmt;
+                g.pot += callAmt;
+                g.betRoundActions++;
+                window.scsSetStatus(pid, `CALL ${callAmt}`, 'text-champagne');
+                window.scsLog(`[${p.name}] CALL ${callAmt}`);
+                break;
+            }
+            case 'raise': {
+                const raiseAmt = Math.min(amount, p.chips);
+                const extra = raiseAmt - p.bet;
+                const netAdd = Math.min(extra, p.chips);
+                
+                if (pid === 0) {
+                    window.playerCurrency -= netAdd;
+                    window.updateCurrencyDisplay();
+                    p.chips = window.playerCurrency;
+                } else {
+                    p.chips -= netAdd;
+                }
+                
+                p.bet += netAdd;
+                g.pot += netAdd;
+                g.currentBet = p.bet;
+                g.betRoundActions = 1;
+                window.scsSetStatus(pid, `RAISE ${netAdd}`, 'text-gold');
+                window.scsLog(`[${p.name}] RAISE → ${p.bet}`, 'action');
+                break;
+            }
+        }
+        window.scsUpdateUI();
+    };
+
+    window.scsDoBotTurn = () => {
+        const g = window.scsGame;
+        if (!g) return;
+        const p = g.players[g.actionIdx];
+        if (!p || p.folded || p.busted) { window.scsNextAction(); return; }
+        
+        const toCall = g.currentBet - p.bet;
+        const dec = window.scsBotDecide(p, toCall, g.pot, g.street);
+        window.scsApplyAction(p.id, dec.action, dec.amount);
+        window.scsNextAction();
+    };
+
+    window.scsHumanAction = (action) => {
+        const g = window.scsGame;
+        if (!g) return;
+        const p = g.players[0];
+        const toCall = g.currentBet - p.bet;
+
+        if (action === 'fold') {
+            window.scsApplyAction(0, 'fold');
+        } else if (action === 'check') {
+            if (toCall > 0) { showAlert('콜 또는 레이즈를 해야 합니다.'); return; }
+            window.scsApplyAction(0, 'check');
+        } else if (action === 'call') {
+            if (toCall <= 0) { window.scsApplyAction(0, 'check'); return; }
+            if (window.playerCurrency < toCall) { showAlert('잔액이 부족합니다.'); return; }
+            window.scsApplyAction(0, 'call', toCall);
+        } else if (action === 'raise') {
+            const amt = parseInt(document.getElementById('scs-raise-val').value) || SCS_MIN_RAISE;
+            if (amt < SCS_MIN_RAISE) { showAlert(`최소 레이즈는 ${SCS_MIN_RAISE} G 입니다.`); return; }
+            if (window.playerCurrency < toCall + amt) { showAlert('잔액이 부족합니다.'); return; }
+            const total = Math.min(p.chips, g.currentBet + amt);
+            window.scsApplyAction(0, 'raise', total);
+        }
+        window.scsNextAction();
+    };
+
+    window.scsEndStreet = () => {
+        const g = window.scsGame;
+        const active = g.players.filter(p => !p.folded && !p.busted);
+        if (active.length <= 1) { window.scsEndHand(); return; }
+
+        g.street++;
+        g.currentBet = 0;
+        g.betRoundActions = 0;
+        for (let p of g.players) {
+            p.bet = 0;
+            window.scsSetStatus(p.id, '');
+        }
+
+        if (g.street > 4) { window.scsShowdown(); return; }
+
+        const isDown = g.street === 4; // 7th street만 hidden
+        for (let p of g.players) {
+            if (p.folded || p.busted) continue;
+            const c = g.deck.pop();
+            c.down = isDown;
+            p.cards.push(c);
+        }
+
+        window.scsLog(`— ${SCS_ROUND_NAMES[g.street]} —`, 'important');
+        window.scsUpdateUI();
+
+        // 3rd 이후로는 오픈 패가 가장 높은 사람이 선
+        let best = null, bestId = active[0].id;
+        for (let p of active) {
+            const vis = p.cards.filter(c => !c.down);
+            const e = window.scsBestHand(vis.length >= 2 ? vis : vis.concat(vis));
+            if (!best || window.scsCompareEval(e, best) > 0) { best = e; bestId = p.id; }
+        }
+        g.actionIdx = bestId;
+        window.scsLog(`[${g.players[g.actionIdx].name}] 부터 베팅`, 'action');
+        window.scsUpdateUI();
+
+        if (g.players[g.actionIdx].isBot) {
+            controlPanel.innerHTML = `<div class="w-full flex justify-center items-center h-[50px]"><span class="text-gold animate-pulse text-xs">상대방 턴 대기 중...</span></div>`;
+            setTimeout(window.scsDoBotTurn, 800);
+        } else {
+            window.renderScsActionControls(0);
+        }
+    };
+
+    window.scsShowdown = () => {
+        const g = window.scsGame;
+        window.scsLog('— SHOWDOWN —', 'important');
+        const active = g.players.filter(p => !p.folded && !p.busted);
+
+        // 모든 카드 오픈
+        for (let p of active) for (let c of p.cards) c.down = false;
+        window.scsUpdateUI();
+
+        let best = null, winner = null;
+        for (let p of active) {
+            const e = window.scsBestHand(p.cards);
+            p.handEval = e;
+            if (!best || window.scsCompareEval(e, best) > 0) { best = e; winner = p; }
+        }
+
+        window.scsResolveWinner(winner, best, active);
+    };
+
+    window.scsEndHand = () => {
+        const g = window.scsGame;
+        const active = g.players.filter(p => !p.folded && !p.busted);
+        if (active.length === 1) {
+            window.scsResolveWinner(active[0], null, active, true);
+        }
+    };
+
+    window.scsResolveWinner = (winner, bestEval, activePlayers, isFoldWin = false) => {
+        const g = window.scsGame;
+        const potAmt = g.pot;
+
+        if (winner.id === 0) {
+            window.playerCurrency += potAmt;
+            window.updateCurrencyDisplay();
+        } else {
+            winner.chips += potAmt;
+        }
+
+        let title = winner.id === 0 ? '🏆 YOU WIN!' : `[${winner.name}] 승리`;
+        let handName = isFoldWin ? '상대 전원 기권 (Fold)' : SCS_HAND_NAMES[bestEval.rank];
+        
+        window.scsLog(`🏆 ${winner.name} 승리! +${potAmt} G (${handName})`, 'win');
+        
+        let othersStr = isFoldWin ? '' : activePlayers.filter(p => p.id !== winner.id).map(p => `${p.name}: ${SCS_HAND_NAMES[p.handEval.rank]}`).join('\n');
+
+        // 결과 모달 표시
+        const overlay = document.getElementById('scs-message-overlay');
+        document.getElementById('scs-result-title').innerText = title;
+        document.getElementById('scs-result-body').innerText = `획득: ${potAmt} G\n${othersStr}`;
+        document.getElementById('scs-result-hand').innerText = handName;
+        overlay.classList.remove('hidden');
+        overlay.classList.add('flex');
+
+        window.scsUpdateUI(); // 승자 칩 업데이트 반영
+        window.renderScsBettingControls(); // 재시작 버튼 띄우기
+
+        // 3초 후 오버레이 닫기
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }, 3500);
     };
 
     // ==========================================
