@@ -2415,10 +2415,11 @@
         }
     };
 
-    // [수정 3] 게임 시작 함수: 최초 앤티 지불 시 전재산이 나가버린 유저에 대한 동일한 예외 처리
+    // [수정] 게임 시작 함수: 최소 입장 소지금 5000G 제한 추가
     window.scsStartGame = () => {
-        if (window.playerCurrency < SCS_ANTE) {
-            showAlert("앤티(참가비)를 지불할 재화가 부족합니다.");
+        // FIX: 1% 룰 적용 시 최소 베팅금(50G)을 충족하기 위한 최소 입장 소지금을 5000G로 제한
+        if (window.playerCurrency < 5000) {
+            showAlert("입장 불가: 최소 5,000 G 이상 보유해야 포커에 참여할 수 있습니다.");
             return;
         }
 
@@ -2441,8 +2442,9 @@
 
         const g = window.scsGame;
         
+        // 봇들도 최소 5000G 이상은 가지고 시작하도록 파산 방지 보정
         for(let i=1; i<=3; i++) {
-            if(g.players[i].chips < SCS_ANTE) g.players[i].chips = 10000;
+            if(g.players[i].chips < 5000) g.players[i].chips = 10000;
         }
 
         document.getElementById('scs-log').innerHTML = ''; 
@@ -2474,7 +2476,6 @@
         window.scsUpdateUI();
         window.scsLog(`3rd Street — [${g.players[g.actionIdx].name}] 부터 시작`, 'action');
 
-        // FIX: 첫 Bring-in 차례인 플레이어가 앤티만 내고 올인 상태가 되었을 때의 스킵 처리
         if (g.players[g.actionIdx].chips === 0) {
             g.betRoundActions++;
             setTimeout(window.scsNextAction, 50);
