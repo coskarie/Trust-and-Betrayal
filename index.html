@@ -2222,27 +2222,31 @@
         return Math.min(1, score + e.rank * 0.05);
     };
 
-    // [수정 1] 봇의 판단 로직: amount를 목표 총 베팅금으로 반환하도록 수정
+    // [수정 1] 봇의 판단 로직: 보유 골드 1% (하한 5000G) 룰 적용
     window.scsBotDecide = (player, toCall, pot, street) => {
         const str = window.scsHandStrength(player.cards);
         const bluff = Math.random() < 0.12;
         const effectiveStr = bluff ? Math.min(1, str + 0.35) : str;
         const adj = Math.min(1, effectiveStr + (street * 0.04));
 
+        // [신규 규칙] 배팅 한도 계산: 보유 칩의 1%와 5000G 중 큰 값
+        const maxLimit = Math.max(5000, Math.floor(player.chips * 0.01));
+        const maxAllowedRaise = Math.min(player.chips, maxLimit);
+
         if (toCall === 0) {
             if (adj > 0.55) {
-                const raiseAmt = Math.min(player.chips, Math.floor(pot * (0.3 + adj * 0.4)));
-                const additional = Math.max(SCS_MIN_RAISE, Math.min(raiseAmt, player.chips));
-                // FIX: player.bet을 더하여 총 베팅금으로 반환
-                return { action: 'raise', amount: player.bet + additional };
+                const raiseAmt = Math.min(maxAllowedRaise, Math.floor(pot * (0.3 + adj * 0.4)));
+                const additional = Math.max(SCS_MIN_RAISE, raiseAmt);
+                const finalAdd = Math.min(additional, player.chips);
+                return { action: 'raise', amount: player.bet + finalAdd };
             }
             return { action: 'check' };
         } else {
             if (adj < 0.25) return { action: 'fold' };
-            if (adj > 0.70 && player.chips > toCall + SCS_MIN_RAISE) {
+            // 한도가 toCall을 덮을 수 있을 때만 레이즈 시도
+            if (adj > 0.70 && maxAllowedRaise > toCall + SCS_MIN_RAISE) {
                 const extra = Math.floor(toCall * (0.5 + adj));
-                const additional = Math.min(player.chips, toCall + Math.max(SCS_MIN_RAISE, extra));
-                // FIX: player.bet을 더하여 총 베팅금으로 반환
+                const additional = Math.min(maxAllowedRaise, toCall + Math.max(SCS_MIN_RAISE, extra));
                 return { action: 'raise', amount: player.bet + additional };
             }
             if (player.chips <= toCall) return { action: 'call', amount: player.chips };
@@ -2532,7 +2536,7 @@
         }
     };
 
-    // 3. (수정) 액션 적용 함수 (콜, 레이즈 시 ALL-IN 로그 및 상태 텍스트 빨간색 강조)
+    // [수정 2] 액션 적용 로직: 모든 레이즈 액션에 대해 1% (하한 5000G) 강제 한도 적용
     window.scsApplyAction = (pid, action, amount) => {
         const g = window.scsGame;
         const p = g.players[pid];
@@ -2567,9 +2571,12 @@
                 break;
             }
             case 'raise': {
-                // FIX: amount(총 목표 베팅금)에서 기존 베팅금을 빼서 순수 추가금만 계산
-                const desiredExtra = amount - p.bet;
-                // 최소 0 이상, 최대 남은 칩만큼만 뺄 수 있도록 강제 방어
+                let desiredExtra = amount - p.bet;
+                
+                // [신규 규칙] 사용자가 슬라이더로 크게 베팅하더라도 시스템에서 강제 한도 적용
+                const maxLimit = Math.max(5000, Math.floor(p.chips * 0.01));
+                desiredExtra = Math.min(desiredExtra, maxLimit);
+                
                 const netAdd = Math.max(0, Math.min(desiredExtra, p.chips));
                 
                 if (pid === 0) {
