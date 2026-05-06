@@ -2411,7 +2411,7 @@
         }
     };
 
-    // 게임 로직
+    // [수정 3] 게임 시작 함수: 최초 앤티 지불 시 전재산이 나가버린 유저에 대한 동일한 예외 처리
     window.scsStartGame = () => {
         if (window.playerCurrency < SCS_ANTE) {
             showAlert("앤티(참가비)를 지불할 재화가 부족합니다.");
@@ -2495,6 +2495,7 @@
         return active[0].id;
     };
 
+    // [수정 1] 턴 제어 함수: 올인 유저 제외 및 비동기 호출로 무한 루프 원천 차단
     window.scsNextAction = () => {
         const g = window.scsGame;
         const active = g.players.filter(p => !p.folded && !p.busted);
@@ -2736,6 +2737,7 @@
         container.insertAdjacentHTML('beforeend', guideHTML);
     };
 
+    // [수정 2] 스트리트 종료 함수: 카드 분배 후 선 플레이어가 올인 상태일 때의 충돌 방어
     window.scsEndStreet = () => {
         const g = window.scsGame;
         const active = g.players.filter(p => !p.folded && !p.busted);
