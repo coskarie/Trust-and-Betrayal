@@ -234,7 +234,7 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <span id="currency-separator" class="text-gold/50 text-[10px] mt-[1px]">|</span>
-                    <span id="in-game-currency" class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">100 G</span>
+                    <span id="in-game-currency" class="font-display text-[10px] tracking-[0.2em] text-pewter uppercase">5.0k G</span>
                 </div>
             </div>
             <div id="in-game-role" class="font-display text-xs tracking-[0.1em] text-gold font-bold"></div>
@@ -281,7 +281,7 @@
     let currentGameData = {}; // 선택된 숫자나 판돈 등 임시 저장소
 
     // --- 💰 재화 시스템 관리 ---
-    window.playerCurrency = 5000; // 기본 초기 재화
+    window.playerCurrency = 4900; // 기본 초기 재화
     
     // 재화 단위 변환 로직 (k, m)
     window.formatCurrency = (amount) => {
@@ -2915,6 +2915,13 @@
             `;
         }, 1000); 
     };
+
+    // 🔥 여기에 복사해서 붙여넣으시면 됩니다! 🔥
+    document.addEventListener('DOMContentLoaded', () => {
+        if (window.updateCurrencyDisplay) {
+            window.updateCurrencyDisplay();
+        }
+    });
 
 </script>
 
