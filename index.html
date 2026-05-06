@@ -726,7 +726,8 @@
         updateMainDisplay('Game_Select.jpg');
         
         controlPanel.innerHTML = `
-            <div class="grid grid-cols-2 gap-3">
+            <div class="w-full flex flex-col gap-3 my-auto">
+                <div class="grid grid-cols-2 gap-3">
                     <button onclick="renderGacha()" class="btn-deco h-12 text-xs">구슬뽑기</button>
                     <button onclick="renderSlot()" class="btn-deco h-12 text-xs">슬롯머신</button>
                     
