@@ -525,12 +525,16 @@
 
     // 낮 시간 타이머 시작 (현실 240초 = 게임 16:00 ~ 24:00)
     function startDayPhaseClock() {
-        let elapsedSeconds = 0;
         const clockEl = document.getElementById('in-game-clock');
         if(clockEl) clockEl.innerText = "DAY PHASE · 16:00";
 
+        // 🔥 타이머가 시작된 '정확한 실제 시간'을 기록합니다.
+        const startTime = Date.now();
+
         gameClockInterval = setInterval(() => {
-            elapsedSeconds++;
+            // 🔥 단순히 +1을 하는게 아니라, (현재 시간 - 시작 시간)을 계산합니다.
+            // 이렇게 하면 창을 닫아두어 브라우저가 타이머를 늦추더라도, 실제 현실에서 흐른 정확한 초를 잡아냅니다.
+            const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
             
             // 현실 30초당 게임 시간 1시간씩 증가 (16시부터 시작)
             const currentHour = 16 + Math.floor(elapsedSeconds / 30);
