@@ -171,6 +171,28 @@
         
         .game-item-btn { transition: all 0.2s; }
         .game-item-btn:active { transform: scale(0.9); background-color: #D4AF37; color: #000; }
+
+        /* 암호 해독 애니메이션 */
+        .decrypt-reveal {
+            animation: decryptReveal 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        @keyframes decryptReveal {
+            0% { opacity: 0; transform: translateY(10px); filter: blur(4px); }
+            50% { filter: blur(0px); }
+            100% { opacity: 1; transform: translateY(0); filter: blur(0px); }
+        }
+        /* 메일 항목 순차적 등장 */
+        .mail-item { opacity: 0; animation: decryptReveal 0.4s forwards; }
+        .mail-item:nth-child(1) { animation-delay: 0.1s; }
+        .mail-item:nth-child(2) { animation-delay: 0.2s; }
+        .mail-item:nth-child(3) { animation-delay: 0.3s; }
+        .mail-item:nth-child(4) { animation-delay: 0.4s; }
+        .mail-item:nth-child(5) { animation-delay: 0.5s; }
+        .mail-item:nth-child(6) { animation-delay: 0.6s; }
+        .mail-item:nth-child(7) { animation-delay: 0.7s; }
+        .mail-item:nth-child(8) { animation-delay: 0.8s; }
     </style>
 </head>
 <body>
@@ -523,6 +545,23 @@
     
     let gameClockInterval = null;
 
+    // 서버로부터 새 야간 메일 수신
+    socket.on('receiveNightMails', (newMails) => {
+        let now = new Date();
+        let timeStr = now.getHours().toString().padStart(2,'0') + ":" + now.getMinutes().toString().padStart(2,'0');
+
+        newMails.forEach(mail => {
+            window.mailIdCounter++;
+            mail.id = window.mailIdCounter;
+            mail.date = timeStr;
+            mail.isRead = false; // 새 메일은 안읽음 처리
+            window.myMails.push(mail);
+        });
+
+        // 우측 하단이나 알림창으로 새 메일 도착 알림 (해커 테마)
+        showAlert(`[SYSTEM] 암호화된 통신 포트 개방.\n\n신규 메시지 ${newMails.length}건이 수신되었습니다.`);
+    });
+
     // 낮 시간 타이머 시작 (현실 240초 = 게임 16:00 ~ 24:00)
     function startDayPhaseClock() {
         const clockEl = document.getElementById('in-game-clock');
@@ -634,10 +673,12 @@
                     <span class="tracking-widest">협력 게임 접속</span>
                     <span class="text-[9px] text-red-500/50">RUN_</span>
                 </button>
-                <button class="btn-hacker min-h-[48px] px-3">
+
+                <button onclick="openMailbox()" class="btn-hacker min-h-[48px] px-3">
                     <span class="tracking-widest">암호화 메일함 확인</span>
                     <span class="text-[9px] text-red-500/50">READ_</span>
                 </button>
+
                 <button class="btn-hacker min-h-[48px] mt-2 border-red-500 bg-red-950/40 text-red-400 font-bold tracking-[0.25em] justify-center">
                     >>> TURN OVER
                 </button>
@@ -659,6 +700,9 @@
 
         // 유저에게 시스템 알림 띄우기
         showAlert("자정입니다. 보안 프로토콜을 우회하여\n터미널에 접속합니다.");
+
+        // 🔥 서버에 메일 추첨 요청 (방 번호를 같이 보냄) 🔥
+        socket.emit('requestNightMails', { roomNum: currentRoom });
     };
 
     // --- 4. 조작화면 (동적 UI 렌더링 로직) ---
@@ -2864,6 +2908,115 @@
     };
 
     // ==========================================
+
+    // ==========================================
+    // 📧 시스템 메일함 (Night Phase)
+    // ==========================================
+    
+    // 초기 더미 데이터 (몰입용 6개)
+    window.myMails = [
+        { id: 6, sender: "SYS_ADMIN", title: "[경고] 허가되지 않은 접속 시도", content: "최근 24시간 내에 방화벽 외부에서 3회의 브루트포스 공격이 감지되었습니다. 요원님, 보안 키를 즉시 갱신하십시오.", date: "11:42 PM", isRead: true, type: "dummy" },
+        { id: 5, sender: "VIP_Services", title: "스파이 카지노 주말 이벤트 안내", content: "VIP 고객님을 위한 특별한 바카라 토너먼트가 이번 주 토요일에 개최됩니다. 총 상금 50,000,000G!", date: "09:00 AM", isRead: true, type: "dummy" },
+        { id: 4, sender: "Unknown", title: "RE: 거래 내역서", content: "요청하신 물건은 제3구역 라커 402호에 보관해 두었습니다. 암호는 기존과 동일합니다. 배신은 죽음뿐입니다.", date: "Yesterday", isRead: true, type: "dummy" },
+        { id: 3, sender: "Cleaners_Co", title: "청소 서비스 영수증", content: "고객님의 '특별한' 청소 요청이 완료되었습니다. 카펫의 얼룩은 말끔히 지워졌으며, 잔여물은 소각 처리되었습니다.", date: "Yesterday", isRead: true, type: "dummy" },
+        { id: 2, sender: "HQ_ROUTER", title: "정기 서버 점검 안내", content: "내일 새벽 02:00부터 04:00까지 카지노 내부망 보안 업데이트가 진행됩니다. 일부 CCTV 피드가 끊길 수 있습니다.", date: "2 Days Ago", isRead: true, type: "dummy" },
+        { id: 1, sender: "Spam_Bot_99", title: "당신도 100만 골드의 주인공!", content: "지금 바로 클릭해서 무료 칩 5000G를 받아가세요! [링크 삭제됨]", date: "2 Days Ago", isRead: true, type: "dummy" }
+    ];
+    window.mailIdCounter = 10;
+
+    // 메일함 열기 UI (리스트 화면)
+    window.openMailbox = () => {
+        // 메인 이미지 숨기고 오버레이 띄우기
+        const mainImageText = document.getElementById('main-image-text');
+        if(mainImageText) mainImageText.parentElement.style.display = 'none';
+
+        // 메일 리스트 HTML 생성
+        let mailListHTML = `<div class="w-full h-full flex flex-col font-mono text-red-500/80 p-1">
+            <div class="text-[10px] tracking-widest border-b border-red-900/50 pb-2 mb-2 flex justify-between shrink-0 decrypt-reveal">
+                <span>> SECURE_INBOX</span>
+                <span>Unread: <span class="text-white">${window.myMails.filter(m => !m.isRead).length}</span></span>
+            </div>
+            <div class="flex-grow overflow-y-auto filter-scroll flex flex-col gap-1 pb-1">`;
+        
+        // 메일 리스트 렌더링 (최신순)
+        const sortedMails = [...window.myMails].sort((a, b) => b.id - a.id);
+        
+        if (sortedMails.length === 0) {
+            mailListHTML += `<div class="text-center text-xs mt-10 opacity-50">NO MESSAGES</div>`;
+        } else {
+            sortedMails.forEach(mail => {
+                const readStyle = mail.isRead ? 'opacity-50 border-red-900/30' : 'opacity-100 border-red-500/80 bg-red-950/20';
+                const tag = mail.isRead ? '' : '<span class="text-[9px] bg-red-500 text-black px-1 font-bold mr-1 animate-pulse">NEW</span>';
+                
+                mailListHTML += `
+                    <div onclick="viewMailDetail(${mail.id})" class="mail-item cursor-pointer border ${readStyle} p-2 hover:bg-red-900/40 transition-colors flex flex-col gap-1 rounded-sm shrink-0">
+                        <div class="flex justify-between items-center w-full">
+                            <span class="text-[9px] truncate w-2/3">${tag}${mail.sender}</span>
+                            <span class="text-[8px] opacity-70">${mail.date}</span>
+                        </div>
+                        <span class="text-[11px] truncate w-full text-red-400">${mail.title}</span>
+                    </div>
+                `;
+            });
+        }
+        
+        mailListHTML += `</div></div>`;
+        
+        createGameOverlay(mailListHTML, true); // 배경을 약간 어둡게 해서 메인화면에 덧씌움
+
+        // 조작 컨트롤러 업데이트
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto z-40 relative decrypt-reveal">
+                <button onclick="closeMailbox()" class="btn-hacker min-h-[48px] px-3 justify-center text-pewter border-pewter/50 hover:border-pewter hover:bg-white/10 hover:text-white">
+                    <span class="tracking-widest">터미널로 돌아가기 (EXIT)</span>
+                </button>
+            </div>
+        `;
+    };
+
+    // 개별 메일 읽기 화면
+    window.viewMailDetail = (id) => {
+        const mail = window.myMails.find(m => m.id === id);
+        if(!mail) return;
+        
+        mail.isRead = true; // 읽음 처리
+
+        const detailHTML = `
+            <div class="w-full h-full flex flex-col font-mono p-1 decrypt-reveal">
+                <div class="flex justify-between border-b border-red-900/50 pb-2 mb-3 shrink-0">
+                    <div class="flex flex-col gap-1">
+                        <span class="text-[9px] text-red-500/60">FROM: <span class="text-red-400">${mail.sender}</span></span>
+                        <span class="text-[10px] text-red-300">${mail.title}</span>
+                    </div>
+                    <span class="text-[8px] text-red-500/50">${mail.date}</span>
+                </div>
+                
+                <div class="flex-grow overflow-y-auto filter-scroll text-xs text-red-100/90 leading-relaxed whitespace-pre-line p-1 bg-red-950/10 rounded border border-red-900/20">
+                    ${mail.content}
+                </div>
+            </div>
+        `;
+
+        createGameOverlay(detailHTML, true);
+
+        // 조작 컨트롤러 업데이트 (목록으로 돌아가기)
+        controlPanel.innerHTML = `
+            <div class="w-full flex flex-col gap-3 my-auto z-40 relative decrypt-reveal">
+                <button onclick="openMailbox()" class="btn-hacker min-h-[48px] px-3 justify-center text-red-400 border-red-500/50 hover:bg-red-900/30">
+                    <span class="tracking-widest"><< 목록으로 (BACK)</span>
+                </button>
+            </div>
+        `;
+    };
+
+    // 메일함 완전히 닫기
+    window.closeMailbox = () => {
+        const overlay = document.getElementById('game-item-overlay');
+        if(overlay) overlay.remove();
+        
+        // Night Phase 기본 터미널 메뉴로 복구
+        window.transitionToNightPhase(); 
+    };
 
     // [상태 3] 조사하기 하위 메뉴 (바텐더 클릭 버튼에 함수 연결)
     window.renderInvestigateMenu = () => {

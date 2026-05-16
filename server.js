@@ -217,6 +217,72 @@ io.on('connection', (socket) => {
         socket.emit('gameResult', { msg: resultMessage });
     });
 
+    // (server.js 기존 소켓 이벤트들 아래에 추가)
+    
+    // 밤 페이즈 진입 및 야간 메일 생성 처리
+    socket.on('requestNightMails', ({ roomNum }) => {
+        const roomName = `room-${roomNum}`;
+        const room = rooms[roomName];
+        if (!room) return;
+
+        // 중복 생성을 막기 위해, 방장(p1)이 요청했을 때만 서버에서 한 번 주사위를 굴립니다.
+        const isPlayer1 = room.players[socket.id] && room.players[socket.id].slot === 'p1';
+        
+        if (isPlayer1) {
+            const players = Object.values(room.players);
+            if(players.length !== 2) return;
+
+            // 1. 교란(Disturbance) 지령 메일 추첨 (20% 확률로 1명에게만)
+            let disturberId = null;
+            if (Math.random() < 0.20) {
+                // 0 또는 1 인덱스를 뽑아 두 명 중 한 명만 타겟으로 지정
+                const randIndex = Math.floor(Math.random() * 2);
+                disturberId = players[randIndex].id;
+            }
+
+            // 2. 각 플레이어별로 전송할 메일함 만들기
+            players.forEach(p => {
+                let newMails = [];
+                
+                // 🔥 힌트 내용 랜덤 생성 로직 추가 🔥
+                const targetDigit = Math.floor(Math.random() * 8) + 1; // 1~8번째 자리
+                const minRange = Math.floor(Math.random() * 5); // 0~4
+                const maxRange = minRange + Math.floor(Math.random() * 4) + 1; // min + 1~4
+                
+                // (1) 범위단서 메일 (100% 지급)
+                newMails.push({
+                    sender: "UNKNOWN_INFORMANT",
+                    title: "[기밀] 암호 대역 포착",
+                    content: `데이터 스니핑 결과입니다.\n\n비밀번호의 [ ${targetDigit}번째 ] 자리는 [ ${minRange} ~ ${maxRange} ] 사이의 숫자입니다.\n\n흔적을 지우십시오.`,
+                    type: "clue_range"
+                });
+
+                // (2) 스팸 메일 (30% 확률)
+                if (Math.random() < 0.30) {
+                    newMails.push({
+                        sender: "Casino_Ad",
+                        title: "(광고) 룰렛 필승법 대공개!",
+                        content: "누구나 쉽게 100만 골드를 버는 방법! 지금 당장 레드에 전재산을 거세요! (본 정보는 책임지지 않습니다)",
+                        type: "spam"
+                    });
+                }
+
+                // (3) 교란 지령 메일 (서버가 선택한 단 1명에게만 지급)
+                if (p.id === disturberId) {
+                    newMails.push({
+                        sender: "THE_AGENCY",
+                        title: "!!! [1급 지령] 배신 프로토콜 !!!",
+                        content: `상대 요원의 데이터베이스 접근 권한을 탈취할 기회입니다.\n\n이번 밤 협력 미니게임이 시작되면, 의도적으로 [시스템 합선/경보 발생]을 유도하여 게임을 고의로 실패하십시오.\n\n상대가 혼란에 빠진 틈을 타, 상대의 단서 보관함 백도어를 엽니다.`,
+                        type: "order_disturb"
+                    });
+                }
+
+                // 완성된 메일 리스트를 해당 플레이어(socket.id)에게만 은밀히 전송
+                io.to(p.id).emit('receiveNightMails', newMails);
+            });
+        }
+    });
+
     // 접속 종료(새로고침, 탭 닫기 등) 처리
     socket.on('disconnect', () => {
         console.log(`[-] 유저 접속 종료: ${socket.id}`);
